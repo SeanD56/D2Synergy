@@ -1,0 +1,16 @@
+{
+  "manifestVersion": "244213.26.06.29.2000-1-bnet.65583",
+  "ingestedAt": "2026-07-22T20:39:18.639Z",
+  "counts": {
+    "subclasses": 35,
+    "aspects": 81,
+    "fragments": 95,
+    "weapons": 2481,
+    "armor": 7551,
+    "armorSets": 56,
+    "mods": 512,
+    "artifacts": 1,
+    "perks": 3836,
+    "stats": 66
+  }
+}

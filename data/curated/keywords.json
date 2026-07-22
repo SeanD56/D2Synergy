@@ -1,0 +1,6 @@
+{
+  "_comment": "Curated synergy overlay — hand-authored combos and weights the keyword heuristics can't capture. Phase 0 ships this as an empty seed scaffold; Phase 2 populates it. Frozen game = one-time investment.",
+  "version": 0,
+  "combos": [],
+  "weights": {}
+}
