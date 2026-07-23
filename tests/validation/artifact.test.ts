@@ -54,3 +54,27 @@ it("is clean when all 7 slots (2/3/2) are filled with distinct valid perks", () 
   const b = { ...base, artifact: { artifactHash: 500, selectedPerkHashes: [1, 2, 3, 4, 5, 6, 7] } };
   expect(run(b, lookup)).toEqual([]);
 });
+
+// Cumulative pools: each perk hash also appears in every tier ABOVE where it
+// unlocks. tier0(slots2)=[1,2]; tier1(slots3)=[1..5]; tier2(slots2)=[1..7].
+const cumulativeLookup: Partial<Lookup> = {
+  artifact: (h) =>
+    h === 501
+      ? ({
+          hash: 501, name: "Cumulative Artifact",
+          tiers: [
+            { tierIndex: 0, slots: 2, perks: [{ hash: 1 }, { hash: 2 }] },
+            { tierIndex: 1, slots: 3, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }] },
+            { tierIndex: 2, slots: 2, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }, { hash: 6 }, { hash: 7 }] },
+          ],
+        } as never)
+      : undefined,
+};
+
+it("counts each perk toward its first (native) tier under cumulative pools", () => {
+  // Legal 2/3/2 selection: 1,2 native to t0; 3,4,5 to t1; 6,7 to t2 — each also
+  // present in higher pools. First-tier attribution → clean. (Last-tier
+  // attribution would map all 7 to tier 2 → false over-cap + under-fill.)
+  const b = { ...base, artifact: { artifactHash: 501, selectedPerkHashes: [1, 2, 3, 4, 5, 6, 7] } };
+  expect(run(b, cumulativeLookup)).toEqual([]);
+});
