@@ -74,3 +74,48 @@ describe("synergyUpperBound", () => {
     expect(noConsumer).toBe(0);
   });
 });
+
+describe("synergyUpperBound — multi-pair chains and trigger groups", () => {
+  // Keyword "spark" has TWO producers (500,501) and TWO consumers (502,503) →
+  // the bound must cover triangular(2) = ranks 1+2. Three of them share the
+  // trigger "grenade" → the (capped) trigger term must be covered too.
+  const SPARK: Record<number, { name: string; tags: typeof EMPTY_TAGS }> = {
+    500: { name: "P1", tags: tags({ produces: ["spark"], triggers: ["grenade"], element: "solar" }) },
+    501: { name: "P2", tags: tags({ produces: ["spark"], triggers: ["grenade"], element: "solar" }) },
+    502: { name: "C1", tags: tags({ consumes: ["spark"], triggers: ["grenade"], element: "solar" }) },
+    503: { name: "C2", tags: tags({ consumes: ["spark"], element: "solar" }) },
+  };
+  const lk = {
+    aspect: () => undefined,
+    fragment: (h: number) => (SPARK[h] ? { hash: h, element: "solar", ...SPARK[h] } : undefined),
+    artifactPerk: () => undefined,
+  } as unknown as Lookup;
+  const base: Build = {
+    subclass: { element: "solar", aspectHashes: [], fragmentHashes: [] },
+    weapons: [],
+    armor: { pieces: [], setBonuses: [], statPriorities: [], modHashes: [] },
+    artifact: { selectedPerkHashes: [] },
+    constraints: [],
+  };
+  const reach: BuildElement[] = [500, 501, 502, 503].map((h) => el(h, `fragment:${SPARK[h].name}`, SPARK[h].tags));
+
+  it("dominates scoreSynergy over every subset, exercising rank≥2 chains and the trigger term", () => {
+    const bound = synergyUpperBound(base, reach, lk);
+    const hashes = [500, 501, 502, 503];
+    let sawTwoPairs = false;
+    for (let m = 0; m < 1 << hashes.length; m++) {
+      const frags = hashes.filter((_, i) => m & (1 << i));
+      const build: Build = { ...base, subclass: { ...base.subclass, fragmentHashes: frags } };
+      const s = scoreSynergy(build, lk);
+      expect(s.score).toBeLessThanOrEqual(bound + 1e-9);
+      if (frags.length === 4) sawTwoPairs = s.synergies.filter((x) => x.via === "spark").length === 2;
+    }
+    // The rank≥2 chain path (two matched "spark" links) was actually realized.
+    expect(sawTwoPairs).toBe(true);
+    // The trigger path fires in a scored build and the bound still dominates it.
+    const full: Build = { ...base, subclass: { ...base.subclass, fragmentHashes: [500, 501, 502, 503] } };
+    const fullScore = scoreSynergy(full, lk);
+    expect(fullScore.synergies.some((x) => x.via === "trigger:grenade")).toBe(true);
+    expect(fullScore.score).toBeLessThanOrEqual(bound + 1e-9);
+  });
+});
