@@ -430,8 +430,13 @@ function transformArtifacts(
         }
       }
       // Skip empty categories (e.g. the reset socket) so tiers are 0,1,2.
+      // A tier's socket count is its selection ceiling (2 / 3 / 2).
       if (perkList.length) {
-        tiers.push({ tierIndex: tiers.length, perks: perkList });
+        tiers.push({
+          tierIndex: tiers.length,
+          slots: category.socketIndexes.length,
+          perks: perkList,
+        });
       }
     }
 

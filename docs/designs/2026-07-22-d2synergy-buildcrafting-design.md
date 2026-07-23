@@ -72,9 +72,11 @@ A **one-time ingestion pipeline** downloads the Manifest once, slims it to build
 
 > ✅ **Resolved (Phase 0, 2026-07-22 — research spike + rework):** there **are 7 artifacts**, but they're **not** in `DestinyArtifactDefinition` (that table returns only the current season's — Bungie's documented behavior). The 2026 "Monument of Triumph" update (9.7.0, 2026-06-09) exposes all 7 (current + last 6 seasons) as **`DestinyInventoryItemDefinition` items** with `itemTypeDisplayName: "Artifact"` in the Artifacts bucket (`1506418338`), each carrying **8 sockets**. Ingestion now sources them from there (`transform.ts` → `transformArtifacts` via `classifier.isArtifact`).
 >
-> **Confirmed structure (per artifact):** 3 perk **tiers** from 3 socket categories — socket groups **2 / 3 / 2** (+ 1 reset socket, dropped) — with perk pools of **7 / 14 / 21** (raw 8/15/22 minus the empty-mod plug). In-game **slot-capacity rules** (from the 9.7.0 UI): Tier 1 fills all 7 slots, Tier 2 the last 5, Tier 3 capped at 2; perks selectable freely within a tier (no clear-the-column dependency).
+> **Confirmed structure (per artifact):** 3 perk **tiers** from 3 socket categories — socket groups **2 / 3 / 2** (+ 1 reset socket, dropped) — with perk pools of **7 / 14 / 21** (raw 8/15/22 minus the empty-mod plug).
 >
-> **Build-model note:** the original "21 perks, 3 tiers of 7, tier-ceiling unlock" spec is superseded by the above (42 perks across 3 tiers, capacity-based selection). Rework the solver's artifact treatment against this before Phase 1 feasibility. Per-account *unlock state* (which perks a player owns) is in `characterProgressions…seasonalArtifact` (OAuth, Phase 2) — not needed for the all-content dataset.
+> **Selection rules (authoritative — user-confirmed in-game, corroborated by the socket layout):** you equip **7 perks total** per artifact, with a **per-tier ceiling of 2 / 3 / 2** (tier 1 / 2 / 3) — i.e. the socket count per tier is the cap. **No duplicate perks.** (An earlier public write-up claimed "7/5/2" capacities — that was wrong; the 2/3/2 socket layout is definitive.) The emitted `ArtifactTier.slots` field carries this ceiling.
+>
+> **Build-model note:** the original "21 perks, 3 tiers of 7, tier-ceiling unlock" spec is superseded (42 perks across 3 tiers; pick ≤2/3/2, no dupes). Rework the solver's artifact treatment against this before Phase 1 feasibility. Per-account *unlock state* (which perks a player owns) is in `characterProgressions…seasonalArtifact` (OAuth, Phase 2) — not needed for the all-content dataset.
 
 ### The load-bearing derived layer — keyword tagging
 Every item/perk gets normalized tags at ingestion, e.g.:

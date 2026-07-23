@@ -81,7 +81,11 @@ describe.runIf(hasDataset)("derived dataset", () => {
       expect(artifact.tiers.length, `${artifact.name} tier count`).toBe(3);
       for (const tier of artifact.tiers) {
         expect(tier.perks.length, `${artifact.name} tier ${tier.tierIndex}`).toBeGreaterThan(0);
+        // Pool must offer at least as many perks as the tier's selection ceiling.
+        expect(tier.perks.length).toBeGreaterThanOrEqual(tier.slots);
       }
+      // Per-tier selection ceilings are 2 / 3 / 2 → 7 perks equippable.
+      expect(artifact.tiers.map((t) => t.slots)).toEqual([2, 3, 2]);
     }
     console.log(
       "artifacts: " +

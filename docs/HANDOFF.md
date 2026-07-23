@@ -9,7 +9,7 @@
 > **✅ RESOLVED — artifact sourcing (research spike + rework, 2026-07-22):**
 > All **7 artifacts** now ingest correctly. They are NOT in `DestinyArtifactDefinition` (returns only the current one); they're `DestinyInventoryItemDefinition` items with `itemTypeDisplayName: "Artifact"` in the Artifacts bucket (`1506418338`), each with 8 sockets. `transformArtifacts` sources them via `classifier.isArtifact`; `DestinyArtifactDefinition` was dropped from the fetched slice. Emitted: 7 artifacts × 3 tiers, perk pools 7/14/21. See design doc §2 for the full model + in-game slot-capacity rules.
 >
-> **Before Phase 1:** rework the solver's artifact build-model against the real structure (42 perks across 3 tiers, capacity-based selection 7/5/2 — not the old "21 perks, 3×7, tier-ceiling").
+> **Before Phase 1:** rework the solver's artifact build-model against the real structure — **42 perks across 3 tiers; equip 7 total with a per-tier ceiling of 2/3/2 (tiers 1/2/3), no duplicates** (user-confirmed in-game; corroborated by the 2/3/2 socket layout — the earlier "7/5/2" was wrong). The emitted `ArtifactTier.slots` field carries the per-tier ceiling. Supersedes the old "21 perks, 3×7, tier-ceiling" spec.
 
 ## Doc pointers
 - **Execution source-of-truth:** `docs/plans/phase0-scaffold-ingestion-plan.md` (the approved Phase 0 plan; also lives at `~/.claude/plans/soft-launching-nebula.md`). **When this and the design doc disagree, the plan wins for Phase 0 scope.**

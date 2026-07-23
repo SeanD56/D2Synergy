@@ -132,6 +132,12 @@ export interface ArtifactPerk {
 export interface ArtifactTier {
   /** 0-based tier index (0 = tier 1). */
   tierIndex: number;
+  /**
+   * Selection ceiling for this tier = number of sockets it has (2 / 3 / 2 for
+   * tiers 1/2/3, summing to the 7 perks equippable per artifact). Perks are
+   * chosen from `perks` up to this many, with no duplicates.
+   */
+  slots: number;
   perks: ArtifactPerk[];
 }
 
