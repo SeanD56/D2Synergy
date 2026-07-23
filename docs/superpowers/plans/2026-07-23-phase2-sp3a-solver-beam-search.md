@@ -848,9 +848,11 @@ export function expand(state: SolverState, env: SolverEnv, bound: BoundFn): Solv
 /**
  * Beam search over the two open dimensions. Each round expands the beam, routes
  * terminal (no-move) states to `completed`, dedups successors by build key, and
- * keeps the top-`beamWidth` by priority (ties broken by key). Because the
- * priority is an admissible upper bound, a promising producer is never pruned
- * before its consumer can be added.
+ * keeps the top-`beamWidth` by priority, breaking ties by realized synergy and
+ * then by key. Because the priority is an admissible upper bound, a promising
+ * producer is never pruned before its consumer can be added. The realized-score
+ * tie-break matters when the bound is uninformative (e.g. a zero bound degenerates
+ * the beam to a greedy realized-only search, the naive baseline the bound beats).
  */
 export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
   let beam: SolverState[] = [makeState(env, env.base.subclass.fragmentHashes, env.base.artifact.selectedPerkHashes, bound)];
@@ -872,7 +874,7 @@ export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
     }
     for (const key of byKey.keys()) seen.add(key);
     beam = [...byKey.values()]
-      .sort((a, b) => b.priority - a.priority || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
+      .sort((a, b) => b.priority - a.priority || b.realized.score - a.realized.score || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0))
       .slice(0, env.beamWidth);
   }
 
