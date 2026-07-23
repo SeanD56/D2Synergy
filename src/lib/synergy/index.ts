@@ -1,20 +1,8 @@
 /**
- * Synergy engine seam. The solver reaches synergy ONLY through these exports.
- * Types live in ./types; the implementation is filled in across Phase 2 SP1.
+ * Synergy engine seam. The solver reaches synergy ONLY through these exports;
+ * it never knows whether rules, a curated overlay, or (Phase 3) embeddings sit
+ * underneath. Types live in ./types.
  */
 
-import type { Build } from "@/lib/types";
-
-import type { Synergy, SynergyScore } from "./types";
-
-export type { Synergy, SynergyScore } from "./types";
-
-/** STUB (replaced in Task 4). */
-export function getSynergies(_build: Build): Synergy[] {
-  return [];
-}
-
-/** STUB (replaced in Task 4). */
-export function scoreSynergy(_build: Build): SynergyScore {
-  return { score: 0, synergies: [] };
-}
+export type { BuildElement, OverlayEntry, Synergy, SynergyScore } from "./types";
+export { getSynergies, scoreSynergy } from "./score";
