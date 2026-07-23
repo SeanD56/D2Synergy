@@ -34,13 +34,14 @@ const perkMembership: Rule = (build, lookup) => {
 };
 
 /**
- * Phase 1 (partial): tiers are a ceiling — a higher-tier socket accepts its own
- * perks PLUS all lower-tier perks, so the derived pools are cumulative (7/14/21)
- * and a perk hash appears in every tier at/above where it unlocks. We attribute
- * each selected perk to its first (native) tier and count 2/3/2 against that.
- * This is correct for canonical native-per-tier selections but UNDER-constrains
- * cross-tier ones (a flat selectedPerkHashes list can't say which socket a perk
- * fills). A correct check is a nested feasibility/matching test; deferred to the
+ * Phase 1 (partial): artifact tiers are a CEILING — a tier-T socket accepts its
+ * own perks plus every lower tier's perks, so the derived pools are cumulative
+ * (7/14/21) and a perk hash appears in every tier at/above where it unlocks.
+ * A flat selectedPerkHashes list can't say which socket each perk fills, so we
+ * validate only what IS soundly checkable from the flat set: the total count
+ * against the combined ceiling, and a nested-ceiling guard (perks that can only
+ * sit in tier >= k must fit the sockets of tiers >= k). This never rejects a
+ * feasible selection. The full per-socket assignment model is deferred to the
  * Phase 2 artifact-model rework. See memory: artifact-tier-pools-cumulative.
  */
 const tierCapacity: Rule = (build, lookup) => {
@@ -49,41 +50,69 @@ const tierCapacity: Rule = (build, lookup) => {
   const artifact = lookup.artifact(artifactHash);
   if (!artifact) return [];
 
-  // Map each perk hash to its tier index (first tier it appears in).
-  const tierOf = new Map<number, number>();
+  // Native tier = the first (lowest) tier a perk appears in; the perk is
+  // equippable in any socket of that tier or higher.
+  const nativeTier = new Map<number, number>();
   for (const tier of artifact.tiers) {
     for (const p of tier.perks) {
-      if (!tierOf.has(p.hash)) tierOf.set(p.hash, tier.tierIndex);
+      if (!nativeTier.has(p.hash)) nativeTier.set(p.hash, tier.tierIndex);
     }
   }
 
-  // Count distinct selected perks per tier.
-  const perTier = new Map<number, number>();
-  for (const hash of new Set(selectedPerkHashes)) {
-    const idx = tierOf.get(hash);
-    if (idx !== undefined) perTier.set(idx, (perTier.get(idx) ?? 0) + 1);
-  }
+  const totalSlots = artifact.tiers.reduce((sum, t) => sum + t.slots, 0);
+
+  // Distinct, known (placeable) selected perks. Unknown hashes are handled by
+  // perkMembership and excluded from capacity accounting.
+  const selected = [...new Set(selectedPerkHashes)].filter((h) =>
+    nativeTier.has(h),
+  );
 
   const out: Violation[] = [];
-  for (const tier of artifact.tiers) {
-    const n = perTier.get(tier.tierIndex) ?? 0;
-    if (n > tier.slots) {
-      out.push({
-        code: "ARTIFACT_TIER_OVER_CAP",
-        category: "game",
-        message: `Tier ${tier.tierIndex + 1} allows ${tier.slots} perks; ${n} selected.`,
-        subject: { kind: "artifact", hash: artifact.hash },
-      });
-    }
-    if (n < tier.slots) {
-      out.push({
-        code: "ARTIFACT_TIER_UNDERFILLED",
-        category: "game",
-        message: `Fill all ${tier.slots} perks in tier ${tier.tierIndex + 1}; ${n} selected.`,
-        subject: { kind: "artifact", hash: artifact.hash },
-      });
+
+  const overByCount = selected.length > totalSlots;
+  if (overByCount) {
+    out.push({
+      code: "ARTIFACT_TIER_OVER_CAP",
+      category: "game",
+      message: `${selected.length} artifact perks selected; only ${totalSlots} can be equipped.`,
+      subject: { kind: "artifact", hash: artifact.hash },
+    });
+  } else if (selected.length < totalSlots) {
+    out.push({
+      code: "ARTIFACT_TIER_UNDERFILLED",
+      category: "game",
+      message: `Fill all ${totalSlots} artifact perk slots; ${selected.length} selected.`,
+      subject: { kind: "artifact", hash: artifact.hash },
+    });
+  }
+
+  // Nested ceiling: walking tiers high -> low, the perks whose native tier is
+  // >= the current tier can only occupy sockets of tiers >= it. If they
+  // outnumber those sockets, no assignment exists -> genuinely over capacity.
+  // (Skipped when already over by total count, which subsumes this.)
+  if (!overByCount) {
+    const byIndexDesc = [...artifact.tiers].sort(
+      (a, b) => b.tierIndex - a.tierIndex,
+    );
+    let cumulativeSlots = 0;
+    let cumulativeNeed = 0;
+    for (const tier of byIndexDesc) {
+      cumulativeSlots += tier.slots;
+      cumulativeNeed += selected.filter(
+        (h) => nativeTier.get(h) === tier.tierIndex,
+      ).length;
+      if (cumulativeNeed > cumulativeSlots) {
+        out.push({
+          code: "ARTIFACT_TIER_OVER_CAP",
+          category: "game",
+          message: `Too many perks require tier ${tier.tierIndex + 1} or higher (${cumulativeNeed} for ${cumulativeSlots} sockets).`,
+          subject: { kind: "artifact", hash: artifact.hash },
+        });
+        break;
+      }
     }
   }
+
   return out;
 };
 

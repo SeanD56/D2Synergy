@@ -1,8 +1,6 @@
-import type { Build, WeaponSlot } from "@/lib/types";
+import type { PerkConstraint, WeaponPerkColumn, WeaponSlot } from "@/lib/types";
 
-import type { Lookup, Rule, Violation } from "./types";
-import type { PerkConstraint } from "@/lib/types";
-import type { WeaponPerkColumn } from "@/lib/types";
+import type { Rule, Violation } from "./types";
 
 /** Columns of `weapon` that can roll the constrained perk. */
 function columnsFor(
@@ -38,6 +36,7 @@ const perksAndSlot: Rule = (build, lookup) => {
     // Count requested perks whose ONLY column is a given socket index.
     const pinnedByColumn = new Map<number, number>();
     for (const constraint of sel.perkConstraints) {
+      if (constraint.perkHash === undefined && constraint.perkName === undefined) continue;
       const cols = columnsFor(weapon.perkColumns, constraint);
       if (cols.length === 0) {
         out.push({
@@ -68,6 +67,7 @@ const perksAndSlot: Rule = (build, lookup) => {
 const slotUniqueness: Rule = (build) => {
   const counts = new Map<WeaponSlot, number>();
   for (const sel of build.weapons) {
+    if (sel.itemHash === undefined) continue;
     counts.set(sel.slot, (counts.get(sel.slot) ?? 0) + 1);
   }
   const out: Violation[] = [];

@@ -32,6 +32,12 @@ const exoticCount: Rule = (build, lookup) => {
   return out;
 };
 
+/**
+ * Flags armor pieces spanning multiple Guardian classes. The spec's second
+ * clause (piece class must match the equipped subclass's class) is deferred:
+ * SubclassLoadout carries no class/subclass hash and Lookup has no reverse
+ * index to derive it. Revisit when the subclass model grows a class field.
+ */
 const classConsistency: Rule = (build, lookup) => {
   const pieces = specifiedPieces(build);
   const classes = new Set(

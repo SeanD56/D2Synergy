@@ -78,3 +78,31 @@ it("counts each perk toward its first (native) tier under cumulative pools", () 
   const b = { ...base, artifact: { artifactHash: 501, selectedPerkHashes: [1, 2, 3, 4, 5, 6, 7] } };
   expect(run(b, cumulativeLookup)).toEqual([]);
 });
+
+// Capacity stub (hash 600): slots 2/3/2, cumulative pools. tier0 has 4 native
+// perks [1,2,3,4]; tier2 additionally has 3 native perks [7,8,9].
+const capacityLookup: Partial<Lookup> = {
+  artifact: (h) =>
+    h === 600
+      ? ({
+          hash: 600, name: "Capacity Artifact",
+          tiers: [
+            { tierIndex: 0, slots: 2, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }] },
+            { tierIndex: 1, slots: 3, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }, { hash: 6 }] },
+            { tierIndex: 2, slots: 2, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }, { hash: 6 }, { hash: 7 }, { hash: 8 }, { hash: 9 }] },
+          ],
+        } as never)
+      : undefined,
+};
+
+it("does NOT flag over-cap when low-tier perks can fill higher sockets", () => {
+  // 4 perks all native to tier 0, legal across the 2 tier-0 + higher sockets.
+  const b = { ...base, artifact: { artifactHash: 600, selectedPerkHashes: [1, 2, 3, 4] } };
+  expect(run(b, capacityLookup)).not.toContain("ARTIFACT_TIER_OVER_CAP");
+});
+
+it("flags over-cap when too many perks can only sit in the top tier", () => {
+  // 7,8,9 are native to tier 2 (slots 2); 3 > 2 -> genuinely infeasible.
+  const b = { ...base, artifact: { artifactHash: 600, selectedPerkHashes: [7, 8, 9] } };
+  expect(run(b, capacityLookup)).toContain("ARTIFACT_TIER_OVER_CAP");
+});

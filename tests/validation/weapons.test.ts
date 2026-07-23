@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { expect, it } from "vitest";
 
 import type { Build } from "@/lib/types";
 import type { Lookup } from "@/lib/validation/types";
@@ -72,4 +72,17 @@ it("flags double-primary but allows a special in the mix", () => {
     { slot: "energy", itemHash: 100, perkConstraints: [] },
   ] };
   expect(run(withSpecial, lookup)).not.toContain("DOUBLE_PRIMARY_AMMO");
+});
+
+it("ignores an empty perk constraint (mid-edit, no perk chosen)", () => {
+  const b: Build = { ...base, weapons: [{ slot: "energy", itemHash: 100, perkConstraints: [{}] }] };
+  expect(run(b, lookup)).not.toContain("PERK_NOT_IN_POOL");
+});
+
+it("does not flag two empty (unselected) rows in one slot", () => {
+  const b: Build = { ...base, weapons: [
+    { slot: "power", perkConstraints: [] },
+    { slot: "power", perkConstraints: [] },
+  ] };
+  expect(run(b, lookup)).not.toContain("DUPLICATE_WEAPON_SLOT");
 });
