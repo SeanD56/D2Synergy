@@ -220,9 +220,11 @@ export function synergyUpperBound(
   }
 
   // Overlay term: any curated entry whose both endpoints are reachable (empty in v1).
+  // Clamp at 0 so a (future) negative-weight entry can't make the bound underestimate:
+  // the score-maximizing completion would simply not trigger a penalty overlay.
   let overlay = 0;
   for (const o of CURATED_OVERLAY) {
-    if (byHash.has(o.fromHash) && byHash.has(o.toHash)) overlay += o.weight;
+    if (byHash.has(o.fromHash) && byHash.has(o.toHash)) overlay += Math.max(0, o.weight);
   }
 
   return chain + trigger + overlay;
@@ -829,6 +831,8 @@ export function makeState(
     subclass: { ...env.base.subclass, fragmentHashes: frag },
     artifact: { ...env.base.artifact, selectedPerkHashes: perk },
   };
+  // SP3b: cap/synergy/candidates/bound are recomputed per successor from scratch;
+  // incrementalize when more open dimensions are added.
   const cap = evaluateArtifactCapacity(env.capModel, perk);
   const realized = scoreSynergy(build, env.lookup);
   const candidates = generateCandidates(env, frag, perk, cap);
