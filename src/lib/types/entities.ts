@@ -73,6 +73,8 @@ export interface Weapon extends DerivedEntity {
   kind: "weapon";
   slot: WeaponSlot;
   damageType: Element;
+  /** Ammo type, from equippingBlock.ammoType. Drives the ammo-composition rule. */
+  ammoType: "primary" | "special" | "heavy";
   /** Intrinsic frame/archetype name (e.g. "Adaptive Frame"), when present. */
   archetype?: string;
   perkColumns: WeaponPerkColumn[];

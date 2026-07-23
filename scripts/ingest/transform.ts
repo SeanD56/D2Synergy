@@ -284,6 +284,14 @@ function transformWeapons(
       }
     }
 
+    // DestinyAmmunitionType is a const enum (no runtime value): 1 Primary, 2 Special, 3 Heavy.
+    const AMMO: Record<number, "primary" | "special" | "heavy"> = {
+      1: "primary",
+      2: "special",
+      3: "heavy",
+    };
+    const ammoType = AMMO[item.equippingBlock?.ammoType ?? 0] ?? "primary";
+
     out.push({
       kind: "weapon",
       hash: item.hash,
@@ -291,6 +299,7 @@ function transformWeapons(
       icon: icon(item),
       slot,
       damageType,
+      ammoType,
       archetype,
       perkColumns,
       tags: tag({ text: itemText(item, perks), element: damageType }),

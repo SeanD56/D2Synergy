@@ -104,6 +104,14 @@ describe.runIf(hasDataset)("derived dataset", () => {
     }
   });
 
+  it("weapons carry a valid ammo type", () => {
+    const valid = new Set(["primary", "special", "heavy"]);
+    expect(ds.weapons.every((w) => valid.has(w.ammoType))).toBe(true);
+    // Non-Power weapons are only ever primary/special.
+    const powerless = ds.weapons.filter((w) => w.slot !== "power");
+    expect(powerless.every((w) => w.ammoType !== "heavy")).toBe(true);
+  });
+
   it("groups subclass aspect/fragment pools", () => {
     expect(ds.subclasses.length).toBeGreaterThan(0);
     expect(
