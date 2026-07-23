@@ -73,6 +73,8 @@ export interface Weapon extends DerivedEntity {
   kind: "weapon";
   slot: WeaponSlot;
   damageType: Element;
+  /** Ammo type, from equippingBlock.ammoType. Drives the ammo-composition rule. */
+  ammoType: "primary" | "special" | "heavy";
   /** Intrinsic frame/archetype name (e.g. "Adaptive Frame"), when present. */
   archetype?: string;
   perkColumns: WeaponPerkColumn[];
@@ -142,8 +144,11 @@ export interface ArtifactTier {
 }
 
 /**
- * Artifact — a tiered perk matrix (expected 3 tiers × 7 perks). Selection is
- * gated by a tier ceiling + active-count cap (enforced by the solver, not here).
+ * Artifact — a tiered perk matrix (3 tiers). In the derived data the tier
+ * `perks` pools are cumulative (7 / 14 / 21 across tiers 1/2/3), so a perk
+ * appears in every tier at or above where it unlocks; each tier's `slots`
+ * (2 / 3 / 2) is the selection ceiling, 7 equipped total. Legality is enforced
+ * by the validator/solver, not by this type.
  */
 export interface Artifact extends DerivedEntity {
   kind: "artifact";

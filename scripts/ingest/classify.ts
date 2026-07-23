@@ -137,6 +137,7 @@ export function createClassifier(slice: ManifestSlice): Classifier {
   // documented hashes (Weapon = 1, Armor = 20) if the names ever shift.
   const weaponCategoryHash = categoryByName.get("WEAPON") ?? 1;
   const armorCategoryHash = categoryByName.get("ARMOR") ?? 20;
+  const dummiesCategoryHash = categoryByName.get("DUMMIES");
 
   // Elements from the damage-type table, keyed by the damage-type def hash.
   const elementByDamageHash = new Map<number, Element>();
@@ -201,11 +202,15 @@ export function createClassifier(slice: ManifestSlice): Classifier {
   const hasCategory = (item: DestinyInventoryItemDefinition, hash: number) =>
     item.itemCategoryHashes?.includes(hash) ?? false;
 
+  const isDummy = (item: DestinyInventoryItemDefinition) =>
+    item.itemType === 20 || // DestinyItemType.Dummy (const enum — compare the numeric value, don't import it)
+    (dummiesCategoryHash !== undefined && hasCategory(item, dummiesCategoryHash));
+
   return {
     elementForDamageHash: (hash) =>
       hash === undefined ? undefined : elementByDamageHash.get(hash),
-    isWeapon: (item) => hasCategory(item, weaponCategoryHash),
-    isArmor: (item) => hasCategory(item, armorCategoryHash),
+    isWeapon: (item) => hasCategory(item, weaponCategoryHash) && !isDummy(item),
+    isArmor: (item) => hasCategory(item, armorCategoryHash) && !isDummy(item),
     isSubclass: (item) =>
       subclassBucketHash !== undefined &&
       item.inventory?.bucketTypeHash === subclassBucketHash,

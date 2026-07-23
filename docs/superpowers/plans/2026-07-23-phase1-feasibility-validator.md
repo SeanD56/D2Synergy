@@ -22,12 +22,30 @@
 
 ---
 
+## Execution status (updated 2026-07-23)
+
+- ✅ Task 1 — `6b2632a` (reviewed; dummy-item exclusion added during execution)
+- ✅ Task 2 — `df73844` (reviewed)
+- ✅ Task 3 — `00969e0` (reviewed)
+- ⏭️ Task 4 — next (base `00969e0`)
+- Tasks 5–7 pending. Baseline: `pnpm test` 18/18, tsc + eslint clean. Resume via `docs/HANDOFF.md`.
+
+---
+
 ### Task 1: Add `ammoType` to Weapon (ingestion pre-step)
 
 **Files:**
 - Modify: `src/lib/types/entities.ts` (add `ammoType` to `Weapon`)
 - Modify: `scripts/ingest/transform.ts` (`transformWeapons` — populate `ammoType`)
+- Modify: `scripts/ingest/classify.ts` (exclude dummy items from `isWeapon`/`isArmor`)
 - Modify: `tests/dataset.smoke.test.ts` (assert weapons carry a valid `ammoType`)
+
+> **Note (discovered during execution):** the Manifest includes many *dummy*
+> weapon/armor copies (itemCategory "Dummies", `itemType` 20) with bogus data —
+> e.g. dummy Jade Rabbits with Heavy ammo in the Kinetic slot. These must be
+> excluded from `isWeapon`/`isArmor` (resolve the "Dummies" category by name and
+> reject it, plus `itemType === 20`). This both upholds "non-Power weapons are
+> never Heavy" and removes large duplicate pollution from the dataset.
 
 **Interfaces:**
 - Produces: `Weapon.ammoType: "primary" | "special" | "heavy"`
@@ -40,7 +58,8 @@ In `tests/dataset.smoke.test.ts`, inside the `describe.runIf(hasDataset)("derive
   it("weapons carry a valid ammo type", () => {
     const valid = new Set(["primary", "special", "heavy"]);
     expect(ds.weapons.every((w) => valid.has(w.ammoType))).toBe(true);
-    // Non-Power weapons are only ever primary/special.
+    // Non-Power weapons never use Heavy ammo (requires dummy items to be
+    // excluded from weapon classification — see classify.ts isDummy).
     const powerless = ds.weapons.filter((w) => w.slot !== "power");
     expect(powerless.every((w) => w.ammoType !== "heavy")).toBe(true);
   });

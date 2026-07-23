@@ -1,81 +1,42 @@
 # D2Synergy — Session Handoff
 
-> Single resume point for in-flight work. A fresh session working **in this repo** (`/home/doc/Desktop/Repos/D2Synergy`) should read this file first, then the docs it points to, and continue cold.
-> **Location note:** placed at `docs/HANDOFF.md` for discoverability (no prior handoff convention existed). Redirect if you'd prefer `docs/designs/`.
+> Single resume point for in-flight work. A fresh session in this repo (`/home/doc/Desktop/Repos/D2Synergy`) reads this file first, then the docs it points to, and continues cold.
 
 ## Where we are
-**Phase 0 (scaffold + Manifest ingestion) — ✅ COMPLETE and merged to `main` (2026-07-22).** All 8 tasks done; `pnpm ingest` produces the committed dataset (`data/*.json`, 4.5 MB), `pnpm test` is 8/8 green, `pnpm dev` boots. **NEXT: Phase 1 — feasibility validator** (see design §3a). Before Phase 1, rework the artifact build-model per the ingestion finding below.
+**Phase 1 (feasibility validator) — ✅ SHIPPED to `main`.** All 7 tasks done, whole-branch reviewed, fix wave applied + re-reviewed clean. Merged from `phase1-validator`. Baseline at merge: **41/41 tests pass**, `tsc --noEmit` clean, `eslint scripts src tests` clean (0 errors, 0 warnings). Phase 0 (scaffold + ingestion) also on `main`.
 
-> **✅ RESOLVED — artifact sourcing (research spike + rework, 2026-07-22):**
-> All **7 artifacts** now ingest correctly. They are NOT in `DestinyArtifactDefinition` (returns only the current one); they're `DestinyInventoryItemDefinition` items with `itemTypeDisplayName: "Artifact"` in the Artifacts bucket (`1506418338`), each with 8 sockets. `transformArtifacts` sources them via `classifier.isArtifact`; `DestinyArtifactDefinition` was dropped from the fetched slice. Emitted: 7 artifacts × 3 tiers, perk pools 7/14/21. See design doc §2 for the full model + in-game slot-capacity rules.
->
-> **Before Phase 1:** rework the solver's artifact build-model against the real structure — **42 perks across 3 tiers; equip 7 total with a per-tier ceiling of 2/3/2 (tiers 1/2/3), no duplicates** (user-confirmed in-game; corroborated by the 2/3/2 socket layout — the earlier "7/5/2" was wrong). The emitted `ArtifactTier.slots` field carries the per-tier ceiling. Supersedes the old "21 perks, 3×7, tier-ceiling" spec.
+**NEXT: Phase 2** — synergy engine + completion/beam search (populates the `policy` violation category and the `getSynergies`/`scoreSynergy` stubs). **Before any Phase 2 solver work, do the artifact build-model rework** (see Decisions → Artifacts).
 
 ## Doc pointers
-- **Execution source-of-truth:** `docs/plans/phase0-scaffold-ingestion-plan.md` (the approved Phase 0 plan; also lives at `~/.claude/plans/soft-launching-nebula.md`). **When this and the design doc disagree, the plan wins for Phase 0 scope.**
-- **Design / architecture (the "why"):** `docs/designs/2026-07-22-d2synergy-buildcrafting-design.md` — full product design, build model, solver/synergy architecture, phased roadmap, decisions log.
+- **Phase 1 spec:** `docs/superpowers/specs/2026-07-23-phase1-feasibility-validator-design.md`.
+- **Phase 1 plan (7 tasks, full code):** `docs/superpowers/plans/2026-07-23-phase1-feasibility-validator.md`.
+- **Design / architecture (the "why"):** `docs/designs/2026-07-22-d2synergy-buildcrafting-design.md`.
+- **Validator code:** `src/lib/validation/` — `types.ts` (Violation/Lookup/Rule), `lookup.ts` (`createLookup`), `index.ts` (`ALL_RULES`, `validateBuild`), and per-domain rules `subclass.ts` / `weapons.ts` / `armor.ts` / `artifact.ts`. Tests in `tests/validation/`.
 
-## Past / done
-| Item | Status |
-|---|---|
-| Brainstorming + product design | ✅ `docs/designs/2026-07-22-...-design.md` |
-| Bungie API app registered (by user) | ✅ app name **D2SynergySite**, Confidential client, redirect `https://127.0.0.1:3000/api/auth/callback`, scopes: Read D2 info + Move/equip. **API key / client id / secret held by user — NOT in repo.** |
-| Phase 0 plan approved | ✅ `docs/plans/phase0-scaffold-ingestion-plan.md` |
-| Manifest research (tables, auth, tooling) | ✅ folded into the plan's steps + "Flagged unknowns" |
-| Task 1 — Scaffold Next.js/TS | ✅ Next 16 + TS strict + Tailwind v4 + pnpm; scripts `ingest`/`test`/`dev:https`; `.env.example`; landing stub. |
-| Task 2 — Types | ✅ `src/lib/types/` (entities, Build, dataset, common). |
-| Task 3 — Manifest fetch | ✅ `scripts/ingest/fetchManifest.ts` (X-API-Key HttpClient, version check, 12-table slice). |
-| Task 4 — classify + transform | ✅ `classify.ts` + `transform.ts`. |
-| Task 5 — keywords + indexes | ✅ `keywords.ts` (seed vocab + produce/consume tagger) + `indexes.ts`; `data/curated/keywords.json` seed. |
-| Task 6 — emit + run | ✅ `emit.ts` + `run.ts` (`--force`, count report). |
-| Task 7 — loaders + synergy stub | ✅ `src/lib/data/` + `src/lib/synergy/` (getSynergies/scoreSynergy stubs). |
-| Task 8 — tests + real ingest | ✅ 8/8 Vitest smoke tests; real ingest run; no-op re-run verified. |
-
-**Test baseline:** `pnpm test` → 8/8 pass. App-boot: `pnpm dev` (HTTP 200 on stub). Ingest: `pnpm ingest` (needs `BUNGIE_API_KEY` in `.env` or `.env.local`).
-
-## Active / next — Task 1: Scaffold (start here)
-Build the project skeleton in the repo. Files/artifacts:
-- Run `create-next-app` (TS, App Router, Tailwind, `--src-dir`, `--eslint`, `--use-pnpm`, `--import-alias "@/*"`, `--turbopack`). **GOTCHA:** npm rejects capital letters, so the project name can't be `D2Synergy`. Scaffold into a temp dir named `d2synergy` then copy files into the repo (exclude `.git`, `node_modules`), OR scaffold in place and hand-set `package.json` `"name": "d2synergy"`. Preserve the existing `docs/`.
-- Add dep **`bungie-api-ts`**; dev deps **`tsx`**, **`vitest`**. Set `tsconfig` strict.
-- `package.json` scripts: `ingest` → `tsx scripts/ingest/run.ts`, `test` → `vitest`, `dev` (note `--experimental-https` needed later for Phase 2 OAuth on `127.0.0.1:3000`).
-- `.env.example` documenting `BUNGIE_API_KEY=` (+ future `BUNGIE_CLIENT_ID`/`SECRET`); confirm `.env.local` is gitignored.
-- Minimal landing-page stub.
-
-**Done when:** `pnpm install` succeeds, `pnpm dev` serves the stub page, `package.json` name is lowercase, `docs/` still intact. (Watch for OOM during install — the earlier run was killed exit 137; if it recurs, run `pnpm install` separately / limit concurrency.)
+## Phase 1 — what shipped
+Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[]`, grouped per domain, concatenated by `validateBuild`; `valid = false` iff any `game`-category violation. Rules depend on a narrow `Lookup` seam (not the dataset) so unit tests inject stubs — no filesystem. Domains + codes: subclass (aspect/fragment limits, element match), weapons (perk-in-pool, column conflict, slot mismatch, duplicate slot, no-double-primary), armor (exotic count 0/1, class match, duplicate slot, set-bonus counts), artifact (perk membership, duplicate, tier capacity). Also: `ammoType` on Weapon; dummy manifest items excluded from classification.
 
 ## Future / parked (in order)
-- **Task 2** — Derived-entity + `Build` types (`src/lib/types/`).
-- **Task 3** — Manifest fetch (`scripts/ingest/fetchManifest.ts`): `$http` w/ `X-API-Key`, version check vs `data/dataset-meta.json`, `getDestinyManifestSlice` for the 12 tables (listed in plan §2).
-- **Task 4** — `classify.ts` + `transform.ts` (raw defs → derived entities).
-- **Task 5** — `keywords.ts` (produce/consume tagging) + `indexes.ts` (inverted indexes).
-- **Task 6** — `emit.ts` + `run.ts` (write versioned `data/*.json` + `dataset-meta.json`; `--force` flag; count reporting).
-- **Task 7** — `src/lib/data/` loaders + `src/lib/synergy/` interface **stub** (`getSynergies`/`scoreSynergy`).
-- **Task 8** — Vitest smoke tests + run `pnpm ingest` with user's key; confirm boot + no-op re-run.
-
-**Explicitly deferred (do NOT build now):** OAuth "what I own" toggle (Phase 2), graph-embedding synergy layer (Phase 3), LLM reasoning, Clarity dataset blend for keyword text, SQLite storage fallback.
+- **Phase 2:** synergy engine + completion/beam search; the `policy` (soft) violation category; `getSynergies`/`scoreSynergy`.
+- **Before Phase 2 solver work — artifact build-model rework (carries a known Phase-1 limitation):** the Phase-1 `artifact.ts` `tierCapacity` rule validates only what's soundly checkable from the flat `selectedPerkHashes` list — total count ≤ 7 and a nested-ceiling feasibility guard. It is correct (never rejects a legal build, correctly rejects infeasible ones) but does NOT model per-socket assignment. Rework `Build.artifact` to a per-tier/per-socket selection (or keep the flat list + matching check) so the solver can reason about exact socket placement. See Decisions → Artifacts and memory `artifact-tier-pools-cumulative`.
+- **Deferred Minors / follow-ups:** `scripts/ingest/transform.ts` `AMMO` record allocated inside the weapon loop → hoist; `PerkConstraint.column` field defined but unused (reserved); `artifact.ts` `perkMembership` can emit `ARTIFACT_PERK_UNKNOWN` once per repeated occurrence of an unknown hash (cosmetic); Prismatic `elementConsistency` path has no explicit guard and no real-dataset test (likely holds because prismatic plugs tag as `"prismatic"`, but add a targeted test).
+- **Explicitly deferred (do NOT build now):** champion/anti-barrier coverage (text-only data, needs extraction pass); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); mod energy legality (deprecated); OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
 
 ## Decisions resolved (do not relitigate)
-- **Architecture = Approach B:** one-time static ingestion → versioned derived dataset **committed to git**; no runtime DB. *Why:* game is frozen (no more updates), so data never churns.
-- **Stack:** Next.js App Router + TS strict + Tailwind + **pnpm** + Vitest. *Why:* single-language JSON-native stack; pnpm matches DIM.
-- **Manifest access:** `bungie-api-ts` + `getDestinyManifestSlice` (per-component JSON), `X-API-Key` only for Phase 0 (no OAuth). *Why:* pull only the ~12 buildcrafting tables, already typed.
-- **Energy affinity ignored** (Armor 3.0 untyped armor). *Why:* deprecated mechanic.
-- **Synergy = rules-first (keyword produce/consume + curated overlay), embedding-ready seam** behind `getSynergies()`/`scoreSynergy()`. *Why:* explainable/trustworthy v1; rules provide ground truth for a later `node2vec` graph-embedding layer (Phase 3, chosen over text embeddings which capture topical not mechanical synergy).
-- **Solver = decompose + inverted indexes + beam search, no solver library.** Armor stat-tier optimization isolated as a **swappable module**, v1 = port **DIM's MIT-licensed web-worker algorithm** (keep attribution). *Why:* full cross-product is intractable but synergy is pairwise/keyword-mediated; only armor-stats is genuinely combinatorial.
-- **Build model** includes **artifact** (7 artifacts, 3 tiers × 7 perks, tier-ceiling + active-count, pinnable or solver-selected) and **armor set bonuses** (2pc/4pc). *Why:* both are significant build inputs per the user.
-- **Names:** repo dir `D2Synergy`, Bungie app `D2SynergySite`, npm package **`d2synergy`** (lowercase forced by npm).
+- **Phase 1 validator = rule registry + DI.** Pure `(build, lookup) => Violation[]` rules grouped per domain, concatenated by `validateBuild`; narrow `Lookup` seam so unit tests inject stubs. *Why:* isolated/testable, mirrors ingestion's small-module style.
+- **Violation `category`: `game` vs `policy`.** All v1 rules are `game` (hard → `valid=false`). `policy` reserved for Phase 2 soft/synergy preferences (rank, don't invalidate). *Why:* clean seam without a fake split now.
+- **Partial-build semantics:** an incomplete build is never "invalid"; each rule has a firing condition (fires only once its section is engaged). Empty/unselected rows never fire (guarded in weapon slot-uniqueness + perk constraints, armor slot-uniqueness, artifact pinning). *Why:* a build canvas mid-edit shouldn't be spammed.
+- **User's baseline constraints as `game` floors** pairing with game ceilings → aspects **=2**, fragments **=max**, exotic armor **=1**, artifact tiers filled to `slots`. Ammo: **no double-primary; double-special allowed** (≥1 Special). *Why:* common-sense requirements that also prune the Phase 2 solver.
+- **Dummy items excluded from classification.** Manifest has dummy weapon/armor copies (itemCategory "Dummies", `itemType` 20) with bogus data. `classify.ts` `isDummy` rejects them → weapons 2481→2208, armor 7551→6029, and "non-Power weapons never Heavy" holds. *Why:* real data-quality bug.
+- **Artifacts — CEILING/cumulative model (CONFIRMED by user 2026-07-23).** 7 artifacts from `DestinyInventoryItemDefinition` "Artifact" items (bucket `1506418338`, 8 sockets), NOT `DestinyArtifactDefinition`. **3 tiers, socket ceilings 2/3/2 = 7 equipped, no duplicates.** Tiers are a **ceiling**: a higher-tier socket accepts its own perks **plus every lower tier's perks**, so the derived `perks` pools are **cumulative** (7/14/21) — the same perk hash appears in every tier at/above where it unlocks. Capacity legality from a flat list is a nested feasibility/matching problem, NOT a per-tier count. Phase 1 ships a sound-but-partial check (see Future → artifact rework). Memory: `artifact-tier-pools-cumulative`.
+- **(Phase 0, still binding):** Approach B static ingestion committed to git; `bungie-api-ts` + `getDestinyManifestSlice`, `X-API-Key` only; energy affinity ignored; synergy rules-first w/ embedding-ready seam; solver = decompose + inverted indexes + beam search (armor-stats = swappable DIM port). Names: repo `D2Synergy`, npm `d2synergy`.
 
 ## Process + gotchas
-- **Git:** user owns all commits. Nothing committed yet — suggest an initial commit after scaffold lands. Currently on `main`.
-- **Bungie gotchas:** redirect URL must be `https://127.0.0.1:3000/...` (Bungie rejects `localhost` and plain `http`); Phase 2 dev server must run HTTPS via `next dev --experimental-https`; API key goes in untracked `.env.local`.
-- **create-next-app gotcha:** capital-letter project name is rejected (see Task 1). Node 22.15, pnpm 10.32 confirmed.
-- **Ephemeral temp scaffold** at `<session scratchpad>/d2synergy` — do NOT depend on it; re-scaffold fresh.
-- **Flagged unknowns to verify at source during impl (from research):**
-  1. Exact `statTypeHash` encoding an aspect's fragment-slot count (check manifest / DIM `d2-known-values.ts`).
-  2. The armor→set linking field name on `DestinyInventoryItemDefinition`.
-  3. That the 7-artifacts / 3-tiers / 7-per-tier shape holds in the live manifest (adjust Vitest assertions if not).
-  4. Measure `data/` size after ingest → decide plain git vs Git LFS.
-- **Reuse (don't reinvent):** `bungie-api-ts` types/helpers; DIM `src/app/search/d2-known-values.ts` + `d2-additional-info` repo for hash constants; Clarity dataset (deferred) for keyword text.
+- **`bungie-api-ts` const enums have NO runtime value** (ambient, erased by esbuild) — never use as runtime values; compare numeric literals with a comment (see `DestinyAmmunitionType` map, `itemType===20`).
+- **Re-ingest** (`pnpm ingest --force`, only if a task changes the transform) needs `BUNGIE_API_KEY` in `.env`. **RAM-constrained machine** → `NODE_OPTIONS="--max-old-space-size=2048"`; check `free -h` before heavy installs.
+- **Alias:** `@/*` → `src/`; scripts use relative `../../src/lib/types`. `vitest.config.ts` maps `@`.
+- **SDD workflow (for future phases):** implementers on a fast/cheap model when the brief carries full code; task reviewers mid-tier; final whole-branch review on the most-capable model. Progress ledger lives at `.superpowers/sdd/progress.md` (git-ignored scratch).
 
 ## Lifecycle
-- **Keep current:** on each task completion, update the status table, "Where we are" line, and test baseline.
-- **Delete this file** once Phase 0 ships and its detail is folded into a changelog/commit history.
+- Update this file at the start/end of each working session and phase boundary.
+- Safe to trim the Phase-1 detail once Phase 2 is underway; keep Decisions + Future.
