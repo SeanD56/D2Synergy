@@ -107,12 +107,10 @@ it("flags over-cap when too many perks can only sit in the top tier", () => {
   expect(run(b, capacityLookup)).toContain("ARTIFACT_TIER_OVER_CAP");
 });
 
-it("reports a single OVER_CAP (not also UNDERFILLED) when over-constrained yet under total capacity", () => {
-  // 7,8,9 all native to tier 2 (2 sockets): three perks require
-  // tier>=2 sockets but only 2 exist -> infeasible. Total (3) < capacity (7).
-  // The oracle emits OVER_CAP only; "underfilled" would be contradictory.
+it("does not also flag UNDERFILLED for an over-constrained selection (single violation)", () => {
+  // [7,8,9] over-caps tier 2 (see the over-cap test above); crucially it must
+  // NOT ALSO read as underfilled even though 3 < 7 total sockets. The refactor
+  // emits only OVER_CAP here; the old rule emitted both (contradictory).
   const b = { ...base, artifact: { artifactHash: 600, selectedPerkHashes: [7, 8, 9] } };
-  const codes = run(b, capacityLookup);
-  expect(codes).toContain("ARTIFACT_TIER_OVER_CAP");
-  expect(codes).not.toContain("ARTIFACT_TIER_UNDERFILLED");
+  expect(run(b, capacityLookup)).not.toContain("ARTIFACT_TIER_UNDERFILLED");
 });

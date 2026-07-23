@@ -333,15 +333,37 @@ git commit -m "Add pure artifact capacity oracle (buildCapacityModel/evaluate/ca
 
 - [ ] **Step 1: Write the failing test**
 
-Add to `tests/validation/artifact.test.ts` (append at end; reuses the existing `base`, `run`, and `lookup` on artifact hash `500` with slots 2/3/2):
+Add to `tests/validation/artifact.test.ts` (append at end; reuses the existing `base` and `run`). NOTE: the existing `lookup` on artifact `500` (natives 1,2→t0; 3,4,5→t1; 6,7→t2) has a "tight" pool where every subset fits — infeasibility is not constructible from it. Add a fixture whose top tier has MORE native perks than its sockets:
 
 ```ts
+// Capacity stub (hash 600): slots 2/3/2, cumulative pools. tier 2 has THREE
+// native perks [7,8,9] against 2 sockets, so an all-tier-2 selection is over cap.
+const capacityLookup: Partial<Lookup> = {
+  artifact: (h) =>
+    h === 600
+      ? ({
+          hash: 600, name: "Capacity Artifact",
+          tiers: [
+            { tierIndex: 0, slots: 2, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }] },
+            { tierIndex: 1, slots: 3, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }, { hash: 6 }] },
+            { tierIndex: 2, slots: 2, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }, { hash: 6 }, { hash: 7 }, { hash: 8 }, { hash: 9 }] },
+          ],
+        } as never)
+      : undefined,
+};
+
+it("does NOT flag over-cap when low-tier perks can fill higher sockets", () => {
+  // 4 perks all native to tier 0 — legal across the 2 tier-0 + higher sockets.
+  const b = { ...base, artifact: { artifactHash: 600, selectedPerkHashes: [1, 2, 3, 4] } };
+  expect(run(b, capacityLookup)).not.toContain("ARTIFACT_TIER_OVER_CAP");
+});
+
 it("reports a single OVER_CAP (not also UNDERFILLED) when over-constrained yet under total capacity", () => {
-  // 6,7 native to tier 2 (2 sockets), plus 5 native to tier 1: three perks need
-  // tier>=2 sockets but only 2 exist -> infeasible. Total (3) < capacity (7).
-  // The oracle emits OVER_CAP only; "underfilled" would be contradictory.
-  const b = { ...base, artifact: { artifactHash: 500, selectedPerkHashes: [5, 6, 7] } };
-  const codes = run(b, lookup);
+  // 7,8,9 all native to tier 2 (2 sockets): three perks need tier>=2 sockets but
+  // only 2 exist -> infeasible. Total (3) < capacity (7). The oracle emits
+  // OVER_CAP only; "underfilled" would be contradictory (the old rule emitted both).
+  const b = { ...base, artifact: { artifactHash: 600, selectedPerkHashes: [7, 8, 9] } };
+  const codes = run(b, capacityLookup);
   expect(codes).toContain("ARTIFACT_TIER_OVER_CAP");
   expect(codes).not.toContain("ARTIFACT_TIER_UNDERFILLED");
 });
@@ -450,7 +472,7 @@ git commit -m "Refactor artifact tierCapacity onto the capacity oracle + export 
 - Testing (unit + integration + regression) → Task 1 unit + completeness; Task 2 full-suite run (which includes the existing real-dataset `tests/validation/integration.test.ts`) + new over-constrained case. ✓
 - Out of scope (OAuth, champions, solver's use) → not built. ✓
 
-**Behavior-change note (intentional, documented):** for a selection that is simultaneously infeasible AND under total count (e.g. `[5,6,7]` on 2/3/2), the old rule emitted BOTH `ARTIFACT_TIER_UNDERFILLED` and a nested `ARTIFACT_TIER_OVER_CAP`; the refactor emits `OVER_CAP` only. This is a strict improvement (the two are contradictory), it is not covered by any existing test, and Task 2 Step 1 adds an explicit test pinning the new single-violation behavior. All existing artifact test cases are unaffected.
+**Behavior-change note (intentional, documented):** for a selection that is simultaneously infeasible AND under total count (e.g. three perks all native to a 2-socket top tier, `[7,8,9]` on artifact `600`), the old rule emitted BOTH `ARTIFACT_TIER_UNDERFILLED` and a nested `ARTIFACT_TIER_OVER_CAP`; the refactor emits `OVER_CAP` only. This is a strict improvement (the two are contradictory), it is not covered by any existing test, and Task 2 Step 1 adds an explicit test pinning the new single-violation behavior. All existing artifact test cases are unaffected.
 
 **Placeholder scan:** No TBD/TODO; every code step contains complete code and exact commands. ✓
 
