@@ -9,7 +9,7 @@ import {
 } from "@/lib/validation/artifact-capacity";
 
 // Cumulative-pool artifact: sockets 2/3/2. Native tiers: 1,2 -> t0; 3,4,5 -> t1;
-// 6,7 -> t2. Each perk also recurs in every higher tier's pool.
+// 6,7,8 -> t2. Each perk also recurs in every higher tier's pool.
 const artifact = {
   hash: 500,
   name: "Test",
@@ -18,7 +18,7 @@ const artifact = {
   tiers: [
     { tierIndex: 0, slots: 2, perks: [{ hash: 1 }, { hash: 2 }] },
     { tierIndex: 1, slots: 3, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }] },
-    { tierIndex: 2, slots: 2, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }, { hash: 6 }, { hash: 7 }] },
+    { tierIndex: 2, slots: 2, perks: [{ hash: 1 }, { hash: 2 }, { hash: 3 }, { hash: 4 }, { hash: 5 }, { hash: 6 }, { hash: 7 }, { hash: 8 }] },
   ],
 } as unknown as Artifact;
 
@@ -61,7 +61,7 @@ describe("evaluate", () => {
   });
 
   it("is infeasible when a tier threshold is over-subscribed (3 perks needing tier>=2 into 2 sockets)", () => {
-    const cap = evaluate(m, [5, 6, 7]); // 5->t1, 6,7->t2; tier>=2 needs 3 > 2 sockets
+    const cap = evaluate(m, [6, 7, 8]); // all native t2; tier>=2 needs 3 > 2 sockets
     expect(cap.feasible).toBe(false);
     expect(cap.headroomByTier[2]).toBeLessThan(0);
   });
@@ -83,7 +83,7 @@ describe("canAdd", () => {
   });
 
   it("refuses adding a perk when a threshold at or below its native tier is exhausted", () => {
-    const cap = evaluate(m, [5, 6]); // 5->t1, 6->t2; headroom[2] = 2-2 = 0
+    const cap = evaluate(m, [6, 7]); // both native t2; headroom[2] = 2-2 = 0
     expect(cap.headroomByTier[2]).toBe(0);
     expect(canAdd(m, cap, 2)).toBe(false); // no tier>=2 socket left
     expect(canAdd(m, cap, 0)).toBe(true); // a tier-0 perk can still take a low socket
