@@ -6,6 +6,8 @@
 **Phase 1 (feasibility validator) — ✅ SHIPPED to `main`** (merged from `phase1-validator`).
 **Phase 2 · SP1 (synergy engine) — ✅ SHIPPED to `main`** (merged from `phase2-synergy-engine`). Whole-branch reviewed; one Important correctness fix (element dedup) applied. Baseline at merge: **63/63 tests pass**, `tsc --noEmit` clean, `eslint scripts src tests` clean.
 
+**NEXT ACTION:** start SP2 — invoke `superpowers:brainstorming` for the artifact build-model rework (no spec/plan exists yet), then writing-plans → subagent-driven-development, same flow as SP1.
+
 Phase 2 was decomposed into sub-projects (see design doc / SP1 spec). Order + status:
 - **SP1 — synergy engine** ✅ shipped.
 - **SP2 — artifact build-model rework** ⏭️ NEXT (prerequisite before the solver). Rework `Build.artifact` (flat `selectedPerkHashes`) to a per-tier/socket structure + exact per-socket capacity validation. See Decisions → Artifacts and the Phase-1 `tierCapacity` partial-check note.
