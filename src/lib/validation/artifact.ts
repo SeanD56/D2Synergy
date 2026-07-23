@@ -33,6 +33,16 @@ const perkMembership: Rule = (build, lookup) => {
   return out;
 };
 
+/**
+ * Phase 1 (partial): tiers are a ceiling — a higher-tier socket accepts its own
+ * perks PLUS all lower-tier perks, so the derived pools are cumulative (7/14/21)
+ * and a perk hash appears in every tier at/above where it unlocks. We attribute
+ * each selected perk to its first (native) tier and count 2/3/2 against that.
+ * This is correct for canonical native-per-tier selections but UNDER-constrains
+ * cross-tier ones (a flat selectedPerkHashes list can't say which socket a perk
+ * fills). A correct check is a nested feasibility/matching test; deferred to the
+ * Phase 2 artifact-model rework. See memory: artifact-tier-pools-cumulative.
+ */
 const tierCapacity: Rule = (build, lookup) => {
   const { artifactHash, selectedPerkHashes } = build.artifact;
   if (artifactHash === undefined) return [];
