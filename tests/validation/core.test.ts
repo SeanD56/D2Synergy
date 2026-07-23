@@ -40,6 +40,7 @@ describe("validateBuild", () => {
 describe("createLookup", () => {
   it("indexes entities by hash", () => {
     const lookup = createLookup({
+      meta: { manifestVersion: "1", ingestedAt: "2021-01-01T00:00:00Z", counts: {} },
       weapons: [{ hash: 7, name: "W" } as never],
       armor: [],
       armorSets: [],
@@ -47,6 +48,10 @@ describe("createLookup", () => {
       fragments: [],
       subclasses: [],
       artifacts: [],
+      perks: [],
+      mods: [],
+      stats: [],
+      indexes: {} as never,
     } as never);
     expect(lookup.weapon(7)?.name).toBe("W");
     expect(lookup.weapon(999)).toBeUndefined();
