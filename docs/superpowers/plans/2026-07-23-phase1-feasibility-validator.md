@@ -22,6 +22,16 @@
 
 ---
 
+## Execution status (updated 2026-07-23)
+
+- ✅ Task 1 — `6b2632a` (reviewed; dummy-item exclusion added during execution)
+- ✅ Task 2 — `df73844` (reviewed)
+- ✅ Task 3 — `00969e0` (reviewed)
+- ⏭️ Task 4 — next (base `00969e0`)
+- Tasks 5–7 pending. Baseline: `pnpm test` 18/18, tsc + eslint clean. Resume via `docs/HANDOFF.md`.
+
+---
+
 ### Task 1: Add `ammoType` to Weapon (ingestion pre-step)
 
 **Files:**
