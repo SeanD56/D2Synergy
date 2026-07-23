@@ -3,22 +3,31 @@
 > Single resume point for in-flight work. A fresh session in this repo (`/home/doc/Desktop/Repos/D2Synergy`) reads this file first, then the docs it points to, and continues cold.
 
 ## Where we are
-**Phase 1 (feasibility validator) — ✅ SHIPPED to `main`.** All 7 tasks done, whole-branch reviewed, fix wave applied + re-reviewed clean. Merged from `phase1-validator`. Baseline at merge: **41/41 tests pass**, `tsc --noEmit` clean, `eslint scripts src tests` clean (0 errors, 0 warnings). Phase 0 (scaffold + ingestion) also on `main`.
+**Phase 1 (feasibility validator) — ✅ SHIPPED to `main`** (merged from `phase1-validator`).
+**Phase 2 · SP1 (synergy engine) — ✅ SHIPPED to `main`** (merged from `phase2-synergy-engine`). Whole-branch reviewed; one Important correctness fix (element dedup) applied. Baseline at merge: **63/63 tests pass**, `tsc --noEmit` clean, `eslint scripts src tests` clean.
 
-**NEXT: Phase 2** — synergy engine + completion/beam search (populates the `policy` violation category and the `getSynergies`/`scoreSynergy` stubs). **Before any Phase 2 solver work, do the artifact build-model rework** (see Decisions → Artifacts).
+Phase 2 was decomposed into sub-projects (see design doc / SP1 spec). Order + status:
+- **SP1 — synergy engine** ✅ shipped.
+- **SP2 — artifact build-model rework** ⏭️ NEXT (prerequisite before the solver). Rework `Build.artifact` (flat `selectedPerkHashes`) to a per-tier/socket structure + exact per-socket capacity validation. See Decisions → Artifacts and the Phase-1 `tierCapacity` partial-check note.
+- **SP3 — completion / beam-search solver** (needs SP1 + SP2). Ranks completions by stat-fit + `scoreSynergy`.
+- **SP4 — armor stat optimizer** (DIM-algorithm port, web worker; explicitly delayable).
 
 ## Doc pointers
-- **Phase 1 spec:** `docs/superpowers/specs/2026-07-23-phase1-feasibility-validator-design.md`.
-- **Phase 1 plan (7 tasks, full code):** `docs/superpowers/plans/2026-07-23-phase1-feasibility-validator.md`.
+- **Phase 2 · SP1 spec:** `docs/superpowers/specs/2026-07-23-phase2-synergy-engine-design.md`; **plan:** `docs/superpowers/plans/2026-07-23-phase2-synergy-engine.md`.
+- **Phase 1 spec/plan:** `docs/superpowers/specs/2026-07-23-phase1-feasibility-validator-design.md` · `docs/superpowers/plans/2026-07-23-phase1-feasibility-validator.md`.
 - **Design / architecture (the "why"):** `docs/designs/2026-07-22-d2synergy-buildcrafting-design.md`.
-- **Validator code:** `src/lib/validation/` — `types.ts` (Violation/Lookup/Rule), `lookup.ts` (`createLookup`), `index.ts` (`ALL_RULES`, `validateBuild`), and per-domain rules `subclass.ts` / `weapons.ts` / `armor.ts` / `artifact.ts`. Tests in `tests/validation/`.
+- **Validator code:** `src/lib/validation/` — `types.ts` (Violation/Lookup/Rule), `lookup.ts` (`createLookup`, now incl. `perk`/`mod`/`artifactPerk`), `index.ts` (`ALL_RULES`, `validateBuild`), per-domain rules. Tests in `tests/validation/`.
+- **Synergy code:** `src/lib/synergy/` — `types.ts`, `elements.ts` (`collectBuildElements`), `graph.ts` (`matchChains`/`triggerSynergies`), `weights.ts`, `score.ts` (`getSynergies`/`scoreSynergy`), `rules.ts` (`synergyRules`), `index.ts` (`allRules` = game + synergy). Tests in `tests/synergy/`.
+
+## Phase 2 · SP1 — what shipped
+Pure, DI'd rules-based synergy engine over the keyword-tag substrate. `getSynergies(build, lookup)` / `scoreSynergy(build, lookup)` fill the seam; `score == Σ synergy weights`. Producer→consumer chains with escalating (quadratic-in-depth) weights reward focus/"engine" builds; element-coherence multiplier; capped trigger alignment; empty curated-overlay mechanism. Soft `policy` advisories (`UNUSED_PRODUCER`/`UNMET_CONSUMER`) via `synergyRules`, never flipping `valid`. `Lookup` extended with `perk`/`mod`/`artifactPerk`. Open follow-ups: author curated-overlay entries; weapon roll resolution for name-only perk constraints (SP3); tune weights vs real builds; prismatic-subclass alignment nuance.
 
 ## Phase 1 — what shipped
 Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[]`, grouped per domain, concatenated by `validateBuild`; `valid = false` iff any `game`-category violation. Rules depend on a narrow `Lookup` seam (not the dataset) so unit tests inject stubs — no filesystem. Domains + codes: subclass (aspect/fragment limits, element match), weapons (perk-in-pool, column conflict, slot mismatch, duplicate slot, no-double-primary), armor (exotic count 0/1, class match, duplicate slot, set-bonus counts), artifact (perk membership, duplicate, tier capacity). Also: `ammoType` on Weapon; dummy manifest items excluded from classification.
 
 ## Future / parked (in order)
-- **Phase 2:** synergy engine + completion/beam search; the `policy` (soft) violation category; `getSynergies`/`scoreSynergy`.
-- **Before Phase 2 solver work — artifact build-model rework (carries a known Phase-1 limitation):** the Phase-1 `artifact.ts` `tierCapacity` rule validates only what's soundly checkable from the flat `selectedPerkHashes` list — total count ≤ 7 and a nested-ceiling feasibility guard. It is correct (never rejects a legal build, correctly rejects infeasible ones) but does NOT model per-socket assignment. Rework `Build.artifact` to a per-tier/per-socket selection (or keep the flat list + matching check) so the solver can reason about exact socket placement. See Decisions → Artifacts and memory `artifact-tier-pools-cumulative`.
+- **SP1 synergy engine** ✅ shipped (the `policy` category + `getSynergies`/`scoreSynergy` are now live). Remaining SP1 follow-ups: author curated-overlay entries; tune weights vs real builds; prismatic-subclass alignment nuance.
+- **SP2 — artifact build-model rework (NEXT; carries a known Phase-1 limitation):** the Phase-1 `artifact.ts` `tierCapacity` rule validates only what's soundly checkable from the flat `selectedPerkHashes` list — total count ≤ 7 and a nested-ceiling feasibility guard. It is correct (never rejects a legal build, correctly rejects infeasible ones) but does NOT model per-socket assignment. Rework `Build.artifact` to a per-tier/per-socket selection (or keep the flat list + matching check) so the solver can reason about exact socket placement. See Decisions → Artifacts and memory `artifact-tier-pools-cumulative`.
 - **Deferred Minors / follow-ups:** `scripts/ingest/transform.ts` `AMMO` record allocated inside the weapon loop → hoist; `PerkConstraint.column` field defined but unused (reserved); `artifact.ts` `perkMembership` can emit `ARTIFACT_PERK_UNKNOWN` once per repeated occurrence of an unknown hash (cosmetic); Prismatic `elementConsistency` path has no explicit guard and no real-dataset test (likely holds because prismatic plugs tag as `"prismatic"`, but add a targeted test).
 - **Explicitly deferred (do NOT build now):** champion/anti-barrier coverage (text-only data, needs extraction pass); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); mod energy legality (deprecated); OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
 

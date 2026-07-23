@@ -2,10 +2,13 @@ import type {
   Armor,
   ArmorSet,
   Artifact,
+  ArtifactPerk,
   Aspect,
   Build,
   Fragment,
   Hash,
+  Mod,
+  Perk,
   Subclass,
   Weapon,
 } from "@/lib/types";
@@ -31,7 +34,9 @@ export type ViolationCode =
   | "ARTIFACT_TIER_OVER_CAP"
   | "ARTIFACT_TIER_UNDERFILLED"
   | "ARTIFACT_DUPLICATE_PERK"
-  | "ARTIFACT_PERK_UNKNOWN";
+  | "ARTIFACT_PERK_UNKNOWN"
+  | "UNUSED_PRODUCER"
+  | "UNMET_CONSUMER";
 
 export interface ViolationSubject {
   kind:
@@ -41,9 +46,12 @@ export interface ViolationSubject {
     | "weapon"
     | "armor"
     | "armorSet"
-    | "artifact";
+    | "artifact"
+    | "synergy";
   hash?: Hash;
   slot?: string;
+  /** Keyword a synergy advisory refers to (e.g. "volatile"). */
+  keyword?: string;
 }
 
 export interface Violation {
@@ -67,6 +75,9 @@ export interface Lookup {
   fragment(hash: Hash): Fragment | undefined;
   subclass(hash: Hash): Subclass | undefined;
   artifact(hash: Hash): Artifact | undefined;
+  perk(hash: Hash): Perk | undefined;
+  mod(hash: Hash): Mod | undefined;
+  artifactPerk(hash: Hash): ArtifactPerk | undefined;
 }
 
 export type Rule = (build: Build, lookup: Lookup) => Violation[];

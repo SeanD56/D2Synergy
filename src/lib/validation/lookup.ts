@@ -1,4 +1,4 @@
-import type { DerivedDataset, Hash } from "@/lib/types";
+import type { ArtifactPerk, DerivedDataset, Hash } from "@/lib/types";
 
 import type { Lookup } from "./types";
 
@@ -17,6 +17,16 @@ export function createLookup(dataset: DerivedDataset): Lookup {
   const fragments = indexByHash(dataset.fragments);
   const subclasses = indexByHash(dataset.subclasses);
   const artifacts = indexByHash(dataset.artifacts);
+  const perks = indexByHash(dataset.perks);
+  const mods = indexByHash(dataset.mods);
+  const artifactPerks = new Map<Hash, ArtifactPerk>();
+  for (const artifact of dataset.artifacts) {
+    for (const tier of artifact.tiers) {
+      for (const p of tier.perks) {
+        if (!artifactPerks.has(p.hash)) artifactPerks.set(p.hash, p);
+      }
+    }
+  }
 
   return {
     weapon: (hash) => weapons.get(hash),
@@ -26,5 +36,8 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     fragment: (hash) => fragments.get(hash),
     subclass: (hash) => subclasses.get(hash),
     artifact: (hash) => artifacts.get(hash),
+    perk: (hash) => perks.get(hash),
+    mod: (hash) => mods.get(hash),
+    artifactPerk: (hash) => artifactPerks.get(hash),
   };
 }
