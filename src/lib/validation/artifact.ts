@@ -1,0 +1,78 @@
+import type { Rule, Violation } from "./types";
+
+const perkMembership: Rule = (build, lookup) => {
+  const { artifactHash, selectedPerkHashes } = build.artifact;
+  if (artifactHash === undefined) return [];
+  const artifact = lookup.artifact(artifactHash);
+  if (!artifact) return [];
+
+  const known = new Set<number>();
+  for (const tier of artifact.tiers) for (const p of tier.perks) known.add(p.hash);
+
+  const out: Violation[] = [];
+  const seen = new Set<number>();
+  for (const hash of selectedPerkHashes) {
+    if (seen.has(hash)) {
+      out.push({
+        code: "ARTIFACT_DUPLICATE_PERK",
+        category: "game",
+        message: "An artifact perk is selected more than once.",
+        subject: { kind: "artifact", hash },
+      });
+    }
+    seen.add(hash);
+    if (!known.has(hash)) {
+      out.push({
+        code: "ARTIFACT_PERK_UNKNOWN",
+        category: "game",
+        message: `A selected perk is not part of ${artifact.name}.`,
+        subject: { kind: "artifact", hash },
+      });
+    }
+  }
+  return out;
+};
+
+const tierCapacity: Rule = (build, lookup) => {
+  const { artifactHash, selectedPerkHashes } = build.artifact;
+  if (artifactHash === undefined) return [];
+  const artifact = lookup.artifact(artifactHash);
+  if (!artifact) return [];
+
+  // Map each perk hash to its tier index.
+  const tierOf = new Map<number, number>();
+  for (const tier of artifact.tiers) {
+    for (const p of tier.perks) tierOf.set(p.hash, tier.tierIndex);
+  }
+
+  // Count distinct selected perks per tier.
+  const perTier = new Map<number, number>();
+  for (const hash of new Set(selectedPerkHashes)) {
+    const idx = tierOf.get(hash);
+    if (idx !== undefined) perTier.set(idx, (perTier.get(idx) ?? 0) + 1);
+  }
+
+  const out: Violation[] = [];
+  for (const tier of artifact.tiers) {
+    const n = perTier.get(tier.tierIndex) ?? 0;
+    if (n > tier.slots) {
+      out.push({
+        code: "ARTIFACT_TIER_OVER_CAP",
+        category: "game",
+        message: `Tier ${tier.tierIndex + 1} allows ${tier.slots} perks; ${n} selected.`,
+        subject: { kind: "artifact", hash: artifact.hash },
+      });
+    }
+    if (n < tier.slots) {
+      out.push({
+        code: "ARTIFACT_TIER_UNDERFILLED",
+        category: "game",
+        message: `Fill all ${tier.slots} perks in tier ${tier.tierIndex + 1}; ${n} selected.`,
+        subject: { kind: "artifact", hash: artifact.hash },
+      });
+    }
+  }
+  return out;
+};
+
+export const artifactRules: Rule[] = [perkMembership, tierCapacity];
