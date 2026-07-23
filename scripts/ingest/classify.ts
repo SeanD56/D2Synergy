@@ -86,6 +86,12 @@ export interface Classifier {
   isWeapon(item: DestinyInventoryItemDefinition): boolean;
   isArmor(item: DestinyInventoryItemDefinition): boolean;
   isSubclass(item: DestinyInventoryItemDefinition): boolean;
+  /**
+   * True for the 7 seasonal artifacts, which live in the Artifacts inventory
+   * bucket as socketed items (NOT `DestinyArtifactDefinition`, which returns
+   * only the current one).
+   */
+  isArtifact(item: DestinyInventoryItemDefinition): boolean;
   plugKind(item: DestinyInventoryItemDefinition): PlugKind;
   weaponSlotForBucket(bucketHash: number | undefined): WeaponSlot | undefined;
   armorSlotForBucket(bucketHash: number | undefined): ArmorSlot | undefined;
@@ -164,6 +170,8 @@ export function createClassifier(slice: ManifestSlice): Classifier {
     if (armorBuckets[name]) armorSlotByBucketHash.set(hash, armorBuckets[name]);
   }
   const subclassBucketHash = bucketByName.get("SUBCLASS");
+  // Artifacts bucket (resolved by name; fallback to the documented hash).
+  const artifactBucketHash = bucketByName.get("ARTIFACTS") ?? 1506418338;
   // The Manifest has multiple socket categories named "WEAPON PERKS" (a legacy
   // one and the current one); modern weapons use the newer hash, so match ALL
   // of them rather than resolving a single hash.
@@ -201,6 +209,9 @@ export function createClassifier(slice: ManifestSlice): Classifier {
     isSubclass: (item) =>
       subclassBucketHash !== undefined &&
       item.inventory?.bucketTypeHash === subclassBucketHash,
+    isArtifact: (item) =>
+      item.inventory?.bucketTypeHash === artifactBucketHash &&
+      (item.sockets?.socketEntries?.length ?? 0) > 0,
     plugKind: (item) => {
       const id = item.plug?.plugCategoryIdentifier ?? "";
       if (id.includes("aspects")) return "aspect";

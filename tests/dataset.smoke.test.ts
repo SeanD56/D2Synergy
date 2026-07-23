@@ -70,22 +70,25 @@ describe.runIf(hasDataset)("derived dataset", () => {
     expect(four!.description.length).toBeGreaterThan(0);
   });
 
-  it("has artifact(s) with a tiered perk matrix of 7 perks per tier", () => {
-    // RESOLVED (flagged unknown #3): the design assumed "7 artifacts, 3 tiers ×
-    // 7". The live Manifest's DestinyArtifactDefinition holds ONE artifact (the
-    // current seasonal one) with 5 tiers × 7 — Bungie prunes past artifacts.
-    // We assert what actually holds: ≥1 artifact, ≥3 tiers, 7 perks per tier.
-    expect(ds.artifacts.length).toBeGreaterThan(0);
-    const shaped = ds.artifacts.filter(
-      (a) => a.tiers.length >= 3 && a.tiers.every((t) => t.perks.length === 7),
-    );
+  it("has all 7 seasonal artifacts, each with 3 non-empty perk tiers", () => {
+    // The 2026 "Monument of Triumph" system exposes 7 artifacts (current + last
+    // 6 seasons). They live in DestinyInventoryItemDefinition as "Artifact"
+    // items with sockets (NOT DestinyArtifactDefinition, which returns only the
+    // current one). Each has 3 perk tiers (socket groups 2/3/2) + a reset
+    // socket that we drop; tier perk pools are ~8/15/22.
+    expect(ds.artifacts.length).toBe(7);
+    for (const artifact of ds.artifacts) {
+      expect(artifact.tiers.length, `${artifact.name} tier count`).toBe(3);
+      for (const tier of artifact.tiers) {
+        expect(tier.perks.length, `${artifact.name} tier ${tier.tierIndex}`).toBeGreaterThan(0);
+      }
+    }
     console.log(
-      `artifacts: ${ds.artifacts.length} total; ` +
+      "artifacts: " +
         ds.artifacts
-          .map((a) => `"${a.name}" ${a.tiers.length}×${a.tiers[0]?.perks.length ?? 0}`)
+          .map((a) => `"${a.name}" [${a.tiers.map((t) => t.perks.length).join("/")}]`)
           .join(", "),
     );
-    expect(shaped.length).toBeGreaterThan(0);
   });
 
   it("tagged entities into a non-empty keyword producer index", () => {

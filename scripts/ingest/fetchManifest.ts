@@ -23,7 +23,11 @@ import { META_PATH } from "./paths";
 /**
  * The buildcrafting slice: the only Manifest tables the ingestion needs.
  * `as const` preserves the literal names so the returned slice is precisely
- * typed to these 12 tables (and a wrong name is a compile error).
+ * typed to these tables (and a wrong name is a compile error).
+ *
+ * Note: artifacts are NOT sourced from `DestinyArtifactDefinition` (it returns
+ * only the current season's artifact). All 7 come from the "Artifact" items in
+ * `DestinyInventoryItemDefinition` — see `transform.ts`.
  */
 export const MANIFEST_TABLES = [
   "DestinyInventoryItemDefinition",
@@ -37,11 +41,10 @@ export const MANIFEST_TABLES = [
   "DestinyInventoryBucketDefinition",
   "DestinyItemCategoryDefinition",
   "DestinyEquipableItemSetDefinition",
-  "DestinyArtifactDefinition",
 ] as const;
 
 export type BuildcraftingTable = (typeof MANIFEST_TABLES)[number];
-/** The typed shape of the fetched slice (only the 12 tables above). */
+/** The typed shape of the fetched slice (only the tables above). */
 export type ManifestSlice = DestinyManifestSlice<BuildcraftingTable[]>;
 
 const BUNGIE_ORIGIN = "https://www.bungie.net";

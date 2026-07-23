@@ -12,7 +12,6 @@
 
 import type {
   DestinyInventoryItemDefinition,
-  DestinyArtifactDefinition,
   DestinyEquipableItemSetDefinition,
   DestinySandboxPerkDefinition,
   DestinyStatDefinition,
@@ -22,6 +21,7 @@ import type {
   Armor,
   ArmorSet,
   Artifact,
+  ArtifactPerk,
   ArtifactTier,
   Aspect,
   Element,
@@ -375,38 +375,71 @@ function transformMods(
   return out;
 }
 
+/**
+ * Artifacts come from `DestinyInventoryItemDefinition` (the 7 "Artifact" items
+ * in the Artifacts bucket), NOT `DestinyArtifactDefinition` (which returns only
+ * the current one). Each artifact item has socket categories that map to perk
+ * tiers; perks are the plug pool of each tier's sockets. A trailing "reset"
+ * socket category yields no real perks and is dropped.
+ */
 function transformArtifacts(
   slice: ManifestSlice,
+  c: Classifier,
   tag: Tagger,
 ): Artifact[] {
   const items = slice.DestinyInventoryItemDefinition;
+  const plugSets = slice.DestinyPlugSetDefinition;
   const perks = slice.DestinySandboxPerkDefinition as Record<
     number,
     DestinySandboxPerkDefinition
   >;
-  const artifacts = slice.DestinyArtifactDefinition as Record<
-    number,
-    DestinyArtifactDefinition
-  >;
   const out: Artifact[] = [];
-  for (const artifact of values(artifacts)) {
-    const tiers: ArtifactTier[] = (artifact.tiers ?? []).map((tier, tierIndex) => ({
-      tierIndex,
-      perks: (tier.items ?? []).map((tierItem) => {
-        const item = items[tierItem.itemHash];
-        return {
-          hash: tierItem.itemHash,
-          name: name(item),
-          icon: icon(item),
-          tags: tag({ text: itemText(item, perks) }),
-        };
-      }),
-    }));
+
+  for (const item of values(items)) {
+    if (!c.isArtifact(item)) continue;
+    const sockets = item.sockets;
+    if (!sockets) continue;
+
+    // Order tier categories by their first socket index so tiers stay 1→3.
+    const categories = [...(sockets.socketCategories ?? [])].sort(
+      (a, b) => Math.min(...a.socketIndexes) - Math.min(...b.socketIndexes),
+    );
+
+    const tiers: ArtifactTier[] = [];
+    for (const category of categories) {
+      const perkList: ArtifactPerk[] = [];
+      const seen = new Set<number>();
+      for (const socketIndex of category.socketIndexes) {
+        const entry = sockets.socketEntries[socketIndex];
+        const plugSetHash = entry?.reusablePlugSetHash ?? entry?.randomizedPlugSetHash;
+        if (plugSetHash === undefined) continue;
+        for (const plug of plugSets[plugSetHash]?.reusablePlugItems ?? []) {
+          if (seen.has(plug.plugItemHash)) continue;
+          const perkItem = items[plug.plugItemHash];
+          const perkName = name(perkItem);
+          if (!perkName || perkName.startsWith("Empty") || perkName === "Reset Artifact") {
+            continue;
+          }
+          seen.add(plug.plugItemHash);
+          perkList.push({
+            hash: plug.plugItemHash,
+            name: perkName,
+            icon: icon(perkItem),
+            tags: tag({ text: itemText(perkItem, perks) }),
+          });
+        }
+      }
+      // Skip empty categories (e.g. the reset socket) so tiers are 0,1,2.
+      if (perkList.length) {
+        tiers.push({ tierIndex: tiers.length, perks: perkList });
+      }
+    }
+
     out.push({
       kind: "artifact",
-      hash: artifact.hash,
-      name: name(artifact),
-      icon: icon(artifact),
+      hash: item.hash,
+      name: name(item),
+      icon: icon(item),
       tiers,
     });
   }
@@ -499,7 +532,7 @@ export function transformAll(
     armor: transformArmor(slice, classifier, tag),
     armorSets: transformArmorSets(slice, tag),
     mods: transformMods(slice, classifier, tag),
-    artifacts: transformArtifacts(slice, tag),
+    artifacts: transformArtifacts(slice, classifier, tag),
     perks: transformPerks(slice, tag),
     stats: transformStats(slice),
   };

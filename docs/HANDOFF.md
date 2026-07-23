@@ -6,7 +6,10 @@
 ## Where we are
 **Phase 0 (scaffold + Manifest ingestion) — ✅ COMPLETE and merged to `main` (2026-07-22).** All 8 tasks done; `pnpm ingest` produces the committed dataset (`data/*.json`, 4.5 MB), `pnpm test` is 8/8 green, `pnpm dev` boots. **NEXT: Phase 1 — feasibility validator** (see design §3a). Before Phase 1, rework the artifact build-model per the ingestion finding below.
 
-> **Artifact-model correction (must read before Phase 1):** the live Manifest exposes **1 artifact, 5 tiers × 7** — NOT the design's "7 artifacts, 3 tiers of 7". See the ⚠️ note in the design doc §2. Ingestion is generic (`tiers[]×items[]`) so data is fine; the *solver/build-model* assumptions need reworking.
+> **✅ RESOLVED — artifact sourcing (research spike + rework, 2026-07-22):**
+> All **7 artifacts** now ingest correctly. They are NOT in `DestinyArtifactDefinition` (returns only the current one); they're `DestinyInventoryItemDefinition` items with `itemTypeDisplayName: "Artifact"` in the Artifacts bucket (`1506418338`), each with 8 sockets. `transformArtifacts` sources them via `classifier.isArtifact`; `DestinyArtifactDefinition` was dropped from the fetched slice. Emitted: 7 artifacts × 3 tiers, perk pools 7/14/21. See design doc §2 for the full model + in-game slot-capacity rules.
+>
+> **Before Phase 1:** rework the solver's artifact build-model against the real structure (42 perks across 3 tiers, capacity-based selection 7/5/2 — not the old "21 perks, 3×7, tier-ceiling").
 
 ## Doc pointers
 - **Execution source-of-truth:** `docs/plans/phase0-scaffold-ingestion-plan.md` (the approved Phase 0 plan; also lives at `~/.claude/plans/soft-launching-nebula.md`). **When this and the design doc disagree, the plan wins for Phase 0 scope.**
