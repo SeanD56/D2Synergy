@@ -59,15 +59,16 @@ describe.runIf(hasDataset)("synergy engine (integration)", () => {
   });
 
   it("emits an unused-producer advisory without invalidating", () => {
-    // A fragment that produces a keyword it does NOT itself consume (so it is
-    // not self-satisfied) — with nothing else in the build, that keyword is a gap.
-    const pureProducer = ds.fragments.find((f) =>
-      f.tags.produces.some((k) => !f.tags.consumes.includes(k)),
+    // A mod that produces a keyword it does NOT itself consume, placed in armor
+    // (which trips no hard-rule floors), so the build is game-valid while the
+    // produced keyword has no consumer → advisory only.
+    const pureProducerMod = ds.mods.find((m) =>
+      m.tags.produces.some((k) => !m.tags.consumes.includes(k)),
     );
-    expect(pureProducer, "expected a non-self-consuming producer fragment").toBeTruthy();
+    expect(pureProducerMod, "expected a non-self-consuming producer mod").toBeTruthy();
     const build: Build = {
       ...emptyBuild(),
-      subclass: { aspectHashes: [], fragmentHashes: [pureProducer!.hash] },
+      armor: { pieces: [], setBonuses: [], statPriorities: [], modHashes: [pureProducerMod!.hash] },
     };
     const result = validateBuild(build, lookup, allRules);
     expect(result.valid).toBe(true); // policy advisories never invalidate

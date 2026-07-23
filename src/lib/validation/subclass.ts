@@ -10,7 +10,8 @@ function engaged(build: Build): boolean {
   return Boolean(
     s.element ||
       s.superHash !== undefined ||
-      s.aspectHashes.length > 0,
+      s.aspectHashes.length > 0 ||
+      s.fragmentHashes.length > 0,
   );
 }
 
