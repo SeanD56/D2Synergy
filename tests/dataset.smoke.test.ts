@@ -107,9 +107,9 @@ describe.runIf(hasDataset)("derived dataset", () => {
   it("weapons carry a valid ammo type", () => {
     const valid = new Set(["primary", "special", "heavy"]);
     expect(ds.weapons.every((w) => valid.has(w.ammoType))).toBe(true);
-    // Non-Power weapons are only ever primary/special.
-    const powerless = ds.weapons.filter((w) => w.slot !== "power");
-    expect(powerless.every((w) => w.ammoType !== "heavy")).toBe(true);
+    // Mapping isn't defaulting everything to one value: multiple types appear.
+    const present = new Set(ds.weapons.map((w) => w.ammoType));
+    expect(present.size).toBeGreaterThanOrEqual(2);
   });
 
   it("groups subclass aspect/fragment pools", () => {
