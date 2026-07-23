@@ -107,6 +107,8 @@ export function makeState(
     subclass: { ...env.base.subclass, fragmentHashes: frag },
     artifact: { ...env.base.artifact, selectedPerkHashes: perk },
   };
+  // SP3b: cap/synergy/candidates/bound are recomputed per successor from scratch;
+  // incrementalize when more open dimensions are added.
   const cap = evaluateArtifactCapacity(env.capModel, perk);
   const realized = scoreSynergy(build, env.lookup);
   const candidates = generateCandidates(env, frag, perk, cap);
