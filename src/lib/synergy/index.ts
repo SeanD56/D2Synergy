@@ -11,6 +11,7 @@ import { synergyRules } from "./rules";
 
 export type { BuildElement, OverlayEntry, Synergy, SynergyScore } from "./types";
 export { getSynergies, scoreSynergy } from "./score";
+export { synergyUpperBound } from "./bound";
 export { synergyRules } from "./rules";
 
 /** Hard game rules + soft synergy advisories, for callers wanting both. */
