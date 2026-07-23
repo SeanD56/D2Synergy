@@ -50,4 +50,15 @@ describe("collectBuildElements", () => {
   it("is empty for an empty build", () => {
     expect(collectBuildElements(base, lookup)).toEqual([]);
   });
+
+  it("deduplicates repeated hashes (first occurrence wins)", () => {
+    const build: Build = {
+      ...base,
+      subclass: { aspectHashes: [10, 10], fragmentHashes: [] },
+      armor: { ...base.armor, modHashes: [15, 15] },
+    };
+    const els = collectBuildElements(build, lookup);
+    expect(els.map((e) => e.hash).sort((a, b) => a - b)).toEqual([10, 15]);
+    expect(els).toHaveLength(2);
+  });
 });

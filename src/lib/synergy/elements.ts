@@ -7,7 +7,10 @@ import type { BuildElement } from "./types";
 /** Resolve a (partial) build into the tagged elements that drive synergy. */
 export function collectBuildElements(build: Build, lookup: Lookup): BuildElement[] {
   const out: BuildElement[] = [];
+  const seen = new Set<Hash>();
   const add = (hash: Hash, source: string, tags: KeywordTags) => {
+    if (seen.has(hash)) return;
+    seen.add(hash);
     out.push({ hash, source, tags });
   };
 
