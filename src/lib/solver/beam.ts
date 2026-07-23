@@ -29,6 +29,7 @@ export interface SolverEnv {
   capModel: CapacityModel;
   perkPool: ArtifactPerk[];
   beamWidth: number;
+  /** Top-N cut applied by solve() during final ranking; unused inside the beam. */
   topN: number;
   statFit: StatFit;
 }
@@ -124,14 +125,27 @@ export function expand(state: SolverState, env: SolverEnv, bound: BoundFn): Solv
 
 /**
  * Beam search over the two open dimensions. Each round expands the beam, routes
- * terminal (no-move) states to `completed`, dedups successors by build key, and
- * keeps the top-`beamWidth` by priority (ties broken by key). Because the
- * priority is an admissible upper bound, a promising producer is never pruned
- * before its consumer can be added.
+ * terminal states to `completed`, dedups successors by build key, and keeps the
+ * top-`beamWidth` by priority — ties broken by realized synergy, then by key for
+ * determinism. Because `priority` is an admissible upper bound (computed fresh
+ * over the reachable set, not incrementally), the path to the best reachable
+ * completion is never pruned before its consumer can be added.
+ *
+ * Only TERMINAL states — no legal move left (fragment slots full, artifact perk
+ * pool exhausted or capacity-bound) — are returned as completion candidates.
+ * This is intentional: the game floors require a build filled to its caps (all
+ * fragment slots, artifact tiers filled to `slots`), so an underfilled partial
+ * is not a valid deliverable. Note `scoreSynergy` is NOT monotonic under adding
+ * elements (see `synergyUpperBound`), so a filled build can score below some
+ * underfilled ancestor — but that ancestor is not a legal output, and the
+ * admissible bound still guarantees the best *filled* build is retained. (SP3b,
+ * with dynamic caps, must revisit this if it ever allows underfill.)
  */
 export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
   let beam: SolverState[] = [makeState(env, env.base.subclass.fragmentHashes, env.base.artifact.selectedPerkHashes, bound)];
   const completed: SolverState[] = [];
+  // Global dedup: a build key seen in any round is never expanded again, even via
+  // a later path to the same element set (same set ⇒ identical state, so safe).
   const seen = new Set<string>();
 
   while (beam.length > 0) {
@@ -139,6 +153,8 @@ export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
     for (const state of beam) {
       const kids = expand(state, env, bound);
       if (kids.length === 0) {
+        // Terminal: no fragment slot or capacity-legal perk left → a filled,
+        // deliverable build. Only filled builds are valid outputs (see docstring).
         completed.push(state);
         continue;
       }
