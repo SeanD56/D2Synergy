@@ -39,10 +39,12 @@ const tierCapacity: Rule = (build, lookup) => {
   const artifact = lookup.artifact(artifactHash);
   if (!artifact) return [];
 
-  // Map each perk hash to its tier index.
+  // Map each perk hash to its tier index (first tier it appears in).
   const tierOf = new Map<number, number>();
   for (const tier of artifact.tiers) {
-    for (const p of tier.perks) tierOf.set(p.hash, tier.tierIndex);
+    for (const p of tier.perks) {
+      if (!tierOf.has(p.hash)) tierOf.set(p.hash, tier.tierIndex);
+    }
   }
 
   // Count distinct selected perks per tier.
