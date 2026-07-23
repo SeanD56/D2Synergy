@@ -78,3 +78,44 @@ describe("generateCandidates", () => {
     expect(first.element.tags).toBe(fragments[first.hash].tags);
   });
 });
+
+describe("deriveArtifactPerkPool — cross-tier dedup", () => {
+  it("returns each perk once even when a hash repeats across cumulative tiers", () => {
+    const twoTier: Artifact = {
+      kind: "artifact",
+      hash: 301,
+      name: "Art2",
+      tiers: [
+        { tierIndex: 0, slots: 1, perks: [{ hash: 410, name: "Shared", tags: EMPTY_TAGS }] },
+        // Cumulative pool: tier 1 repeats 410 and adds 411.
+        { tierIndex: 1, slots: 1, perks: [
+          { hash: 410, name: "Shared", tags: EMPTY_TAGS },
+          { hash: 411, name: "New", tags: EMPTY_TAGS },
+        ] },
+      ],
+    };
+    expect(deriveArtifactPerkPool(ctx, twoTier).map((p) => p.hash)).toEqual([410, 411]);
+  });
+});
+
+describe("generateCandidates — perk-side moves", () => {
+  it("skips a pool perk whose native tier is unknown to the capacity model", () => {
+    const ghost = { hash: 999, name: "Ghost", tags: EMPTY_TAGS };
+    const mismatchEnv = { ...env, perkPool: [...env.perkPool, ghost] };
+    const cap = evaluateArtifactCapacity(capModel, []);
+    // Fragments at cap (2/2) so only perk candidates are generated.
+    const cands = generateCandidates(mismatchEnv, [200, 201], [], cap);
+    expect(cands.some((c) => c.hash === 999)).toBe(false);
+  });
+
+  it("builds artifactPerk candidates with nativeTier and an artifact-perk source", () => {
+    const cap = evaluateArtifactCapacity(capModel, []);
+    const perkCands = generateCandidates(env, [200, 201], [], cap).filter((c) => c.kind === "artifactPerk");
+    expect(perkCands.length).toBeGreaterThan(0);
+    const first = perkCands[0];
+    expect(first.nativeTier).toBe(0); // single-tier artifact, tierIndex 0
+    expect(first.element.hash).toBe(first.hash);
+    const perk = artifact.tiers[0].perks.find((p) => p.hash === first.hash)!;
+    expect(first.element.source).toBe(`artifact-perk:${perk.name}`);
+  });
+});
