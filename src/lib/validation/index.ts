@@ -7,6 +7,12 @@ import { armorRules } from "./armor";
 import { artifactRules } from "./artifact";
 
 export { createLookup } from "./lookup";
+export {
+  buildCapacityModel,
+  evaluate as evaluateArtifactCapacity,
+  canAdd as canAddArtifactPerk,
+} from "./artifact-capacity";
+export type { CapacityModel, Capacity } from "./artifact-capacity";
 export type {
   Lookup,
   Rule,
