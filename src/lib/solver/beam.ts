@@ -1,4 +1,4 @@
-import type { ArtifactPerk, Build, Fragment, Hash, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
 import { buildCapacityModel, evaluateArtifactCapacity } from "@/lib/validation";
@@ -39,6 +39,8 @@ export interface SolverEnv {
   weaponPool: Map<WeaponSlot, LegalWeapon[]>;
   /** Precomputed loose reachable-union per open slot (for the open-slot bound). */
   weaponReach: Map<WeaponSlot, BuildElement[]>;
+  /** Name-bridge resolver for weapon plug tags (empty tags if unmatched). */
+  resolvePlugTags: (name: string) => KeywordTags;
 }
 
 /** A partial build in the beam. `candidates` are its legal add-one-element moves. */
@@ -98,6 +100,9 @@ export function buildSolverEnv(
     weaponReach.set(sel.slot, deriveWeaponSlotReach(ctx, pool));
   }
 
+  const EMPTY_TAGS: KeywordTags = { produces: [], consumes: [], triggers: [] };
+  const resolvePlugTags = (name: string) => ctx.lookup.perkByName(name)?.tags ?? EMPTY_TAGS;
+
   return {
     ctx,
     lookup: ctx.lookup,
@@ -113,6 +118,7 @@ export function buildSolverEnv(
     openWeaponSlots,
     weaponPool,
     weaponReach,
+    resolvePlugTags,
   };
 }
 
@@ -134,7 +140,7 @@ export function makeState(
   // incrementalize when more open dimensions are added.
   const cap = evaluateArtifactCapacity(env.capModel, perk);
   const realized = scoreSynergy(build, env.lookup);
-  const candidates = generateCandidates(env, frag, perk, cap);
+  const candidates = generateCandidates(env, frag, perk, cap, []);
   const priority = bound(build, candidates.map((c) => c.element), env.lookup);
   return { build, fragHashes: frag, perkHashes: perk, cap, realized, candidates, priority, key: stateKey(frag, perk) };
 }
