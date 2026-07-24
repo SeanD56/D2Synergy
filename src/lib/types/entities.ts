@@ -115,10 +115,21 @@ export interface ArmorSet extends DerivedEntity {
   bonuses: ArmorSetBonus[];
 }
 
+/** Which armor slot a mod can be socketed into (derived from its plug category). */
+export type ModSlotRestriction = ArmorSlot | "general" | "artifice";
+
 /** Armor mod — energy cost + keyword effect (untyped post–Armor 3.0). */
 export interface Mod extends DerivedEntity {
   kind: "mod";
   energyCost: number;
+  /**
+   * Raw `plugCategoryIdentifier` (e.g. "enhancements.v2_head"). Kept verbatim as
+   * an escape hatch: if the identifier taxonomy shifts, `slotRestriction` goes
+   * `undefined` but the cause stays diagnosable without another manifest fetch.
+   */
+  plugCategory: string;
+  /** Derived slot restriction; `undefined` when the identifier is unrecognized. */
+  slotRestriction?: ModSlotRestriction;
   tags: KeywordTags;
 }
 

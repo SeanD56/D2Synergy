@@ -38,6 +38,7 @@ import type {
 import type { Classifier } from "./classify";
 import type { ManifestSlice } from "./fetchManifest";
 import type { Tagger } from "./keywords";
+import { modSlotFromPlugCategory } from "./mod-slots";
 
 /** All derived entity arrays produced by a single transform pass. */
 export interface TransformResult {
@@ -372,12 +373,15 @@ function transformMods(
     if (c.plugKind(item) !== "mod") continue;
     const modName = name(item);
     if (!modName) continue;
+    const plugCategory = item.plug?.plugCategoryIdentifier ?? "";
     out.push({
       kind: "mod",
       hash: item.hash,
       name: modName,
       icon: icon(item),
       energyCost: item.plug?.energyCost?.energyCost ?? 0,
+      plugCategory,
+      slotRestriction: modSlotFromPlugCategory(plugCategory),
       tags: tag({ text: itemText(item, perks) }),
     });
   }
