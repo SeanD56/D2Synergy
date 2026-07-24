@@ -1116,6 +1116,8 @@ function decidedAmmo(env: SolverEnv, picks: SolverState["weapons"]) {
 
 Note: the `beamSearch` root state call `makeState(env, env.base.subclass.fragmentHashes, env.base.artifact.selectedPerkHashes, bound)` needs no change — the 5th param defaults to `[]`.
 
+**Amendment (accepted deviation, applied during execution):** `beamSearch` must route a state to `completed` ONLY when all open weapon slots are decided — `state.weapons.length === env.openWeaponSlots.length`. Without this guard, an ammo-pruned dead-end (every remaining weapon candidate for an open slot is `continue`d, leaving `expand` with empty kids) is misclassified as terminal and leaks an INCOMPLETE build (undecided weapon slot) into `completed`. The guard is a provable no-op for SP3a (empty `openWeaponSlots` ⇒ condition always true) and never rejects a genuine terminal (all slots decided + all columns filled). Opus-verified during Task 5 review.
+
 - [ ] **Step 9: Run the beam-weapons tests + full suite**
 
 Run: `npx vitest run tests/solver/beam-weapons.test.ts tests/solver/beam.test.ts`
