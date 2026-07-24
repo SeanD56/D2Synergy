@@ -60,12 +60,6 @@ export function deriveWeaponPool(
 }
 
 /**
- * Loose reachable-union of tagged elements for a slot: every legal weapon's own
- * element-tags plus every open-column plug resolved through the name bridge. Deduped
- * by hash. An over-estimate (a slot yields one weapon + one plug per column, not all)
- * — safe for an admissible bound. Static per (slot, pins); compute once and cache.
- */
-/**
  * Sound eager-prune condition for the no-double-Primary rule: infeasible iff BOTH
  * non-power slots (kinetic, energy) are decided and neither uses Special ammo. A
  * state with a non-power slot still open is NOT pruned (it may yet supply a Special)
@@ -79,6 +73,12 @@ export function nonPowerAmmoInfeasible(
   return !nonPower.some((d) => d.ammoType === "special");
 }
 
+/**
+ * Loose reachable-union of tagged elements for a slot: every legal weapon's own
+ * element-tags plus every open-column plug resolved through the name bridge. Deduped
+ * by hash. An over-estimate (a slot yields one weapon + one plug per column, not all)
+ * — safe for an admissible bound. Static per (slot, pins); compute once and cache.
+ */
 export function deriveWeaponSlotReach(ctx: SolverContext, pool: LegalWeapon[]): BuildElement[] {
   const out: BuildElement[] = [];
   // Dedup by hash across weapon hashes and resolved perk hashes. Safe: Destiny hashes are
