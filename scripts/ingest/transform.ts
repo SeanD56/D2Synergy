@@ -143,6 +143,43 @@ function collectPlugHashes(
   return hashes;
 }
 
+/**
+ * The plug item socketed in an item's INTRINSIC TRAITS socket, if any.
+ *
+ * For exotic armor this is where the actual exotic effect text lives: the armor
+ * item's own `perks` array is empty in the manifest, so the intrinsic plug (and
+ * the sandbox perk it references) is the only route to the effect description.
+ * Prefers `singleInitialItemHash`, falling back to the first plug of a plug set
+ * for items that express the intrinsic through a set instead.
+ */
+function intrinsicPlugItem(
+  item: DestinyInventoryItemDefinition,
+  slice: ManifestSlice,
+  classifier: Classifier,
+): DestinyInventoryItemDefinition | undefined {
+  const sockets = item.sockets;
+  if (!sockets) return undefined;
+  const items = slice.DestinyInventoryItemDefinition;
+  const plugSets = slice.DestinyPlugSetDefinition;
+
+  for (const category of sockets.socketCategories ?? []) {
+    if (classifier.socketCategoryName(category.socketCategoryHash) !== "INTRINSIC TRAITS") {
+      continue;
+    }
+    for (const index of category.socketIndexes) {
+      const entry = sockets.socketEntries[index];
+      if (!entry) continue;
+      if (entry.singleInitialItemHash) return items[entry.singleInitialItemHash];
+      const plugSetHash = entry.reusablePlugSetHash ?? entry.randomizedPlugSetHash;
+      const first = plugSetHash === undefined
+        ? undefined
+        : plugSets[plugSetHash]?.reusablePlugItems?.[0]?.plugItemHash;
+      if (first) return items[first];
+    }
+  }
+  return undefined;
+}
+
 function transformSubclasses(
   slice: ManifestSlice,
   c: Classifier,
@@ -340,6 +377,15 @@ function transformArmor(
       }
     }
 
+    // The exotic's real effect lives behind its INTRINSIC TRAITS socket; the
+    // armor item's own `perks` array is empty in the manifest (which is why the
+    // previous `item.perks?.[0]?.perkHash` read yielded nothing for all 348
+    // exotics). Tags are the UNION of the item's own text and the intrinsic's.
+    const intrinsic = tier === "exotic" ? intrinsicPlugItem(item, slice, c) : undefined;
+    const text = [itemText(item, perks), itemText(intrinsic, perks)]
+      .filter((part) => part.length > 0)
+      .join("\n");
+
     out.push({
       kind: "armor",
       hash: item.hash,
@@ -351,8 +397,8 @@ function transformArmor(
       statGroupHash: item.stats?.statGroupHash,
       modSocketHashes,
       setHash: item.equippingBlock?.equipableItemSetHash,
-      exoticPerkHash: tier === "exotic" ? item.perks?.[0]?.perkHash : undefined,
-      tags: tag({ text: itemText(item, perks) }),
+      exoticPerkHash: intrinsic?.perks?.[0]?.perkHash,
+      tags: tag({ text }),
     });
   }
   return out;
