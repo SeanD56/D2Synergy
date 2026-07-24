@@ -1,4 +1,5 @@
 import type { ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
+import { EMPTY_TAGS } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
 import { buildCapacityModel, evaluateArtifactCapacity } from "@/lib/validation";
@@ -11,10 +12,16 @@ import {
   deriveFragmentPool,
   generateCandidates,
   type Candidate,
+  type WeaponPick,
 } from "./candidates";
 import { neutralStatFit } from "./stat-fit";
 import type { BoundFn, SolveOptions, SolverContext, StatFit } from "./types";
-import { deriveWeaponPool, deriveWeaponSlotReach, type LegalWeapon } from "./weapons";
+import {
+  deriveWeaponPool,
+  deriveWeaponSlotReach,
+  nonPowerAmmoInfeasible,
+  type LegalWeapon,
+} from "./weapons";
 
 export const DEFAULT_BEAM_WIDTH = 16;
 export const DEFAULT_TOP_N = 5;
@@ -53,12 +60,20 @@ export interface SolverState {
   candidates: Candidate[];
   priority: number;
   key: string;
+  /** Weapons chosen for open slots (pinned slots live in `build`). */
+  weapons: WeaponPick[];
 }
 
 /** Order-independent identity for a partial build (dedup + stable tie-break). */
-export function stateKey(fragHashes: Hash[], perkHashes: Hash[]): string {
+export function stateKey(fragHashes: Hash[], perkHashes: Hash[], weaponPicks: WeaponPick[] = []): string {
   const s = (xs: Hash[]) => [...xs].sort((a, b) => a - b).join(",");
-  return `frag:${s(fragHashes)}|perk:${s(perkHashes)}`;
+  const base = `frag:${s(fragHashes)}|perk:${s(perkHashes)}`;
+  if (weaponPicks.length === 0) return base; // SP3a keys unchanged (byte-identical)
+  const wpn = [...weaponPicks]
+    .sort((a, b) => (a.slot < b.slot ? -1 : a.slot > b.slot ? 1 : 0))
+    .map((p) => `${p.slot}=${p.itemHash}[${s(p.plugHashes)}]`)
+    .join(";");
+  return `${base}|wpn:${wpn}`;
 }
 
 /**
@@ -100,7 +115,6 @@ export function buildSolverEnv(
     weaponReach.set(sel.slot, deriveWeaponSlotReach(ctx, pool));
   }
 
-  const EMPTY_TAGS: KeywordTags = { produces: [], consumes: [], triggers: [] };
   const resolvePlugTags = (name: string) => ctx.lookup.perkByName(name)?.tags ?? EMPTY_TAGS;
 
   return {
@@ -122,36 +136,90 @@ export function buildSolverEnv(
   };
 }
 
-/** Build a fully-derived state from a fragment/perk selection. */
+/** Build a fully-derived state from a fragment/perk/weapon selection. */
 export function makeState(
   env: SolverEnv,
   fragHashes: Hash[],
   perkHashes: Hash[],
   bound: BoundFn,
+  weaponPicks: WeaponPick[] = [],
 ): SolverState {
   const frag = [...fragHashes].sort((a, b) => a - b);
   const perk = [...perkHashes].sort((a, b) => a - b);
+  const pickBySlot = new Map(weaponPicks.map((p) => [p.slot, p]));
+  const weapons = env.base.weapons.map((sel) => {
+    const pick = sel.itemHash === undefined ? pickBySlot.get(sel.slot) : undefined;
+    if (!pick) return sel; // pinned slot, or open slot not yet given a weapon
+    const weapon = env.lookup.weapon(pick.itemHash);
+    const plugConstraints = pick.plugHashes.map((h) => {
+      let name = "", column = -1;
+      for (const col of weapon?.perkColumns ?? []) {
+        const plug = col.plugs.find((p) => p.hash === h);
+        if (plug) { name = plug.name; column = col.socketIndex; break; }
+      }
+      return { perkHash: h, perkName: name, column };
+    });
+    return { ...sel, itemHash: pick.itemHash, perkConstraints: [...sel.perkConstraints, ...plugConstraints] };
+  });
   const build: Build = {
     ...env.base,
     subclass: { ...env.base.subclass, fragmentHashes: frag },
     artifact: { ...env.base.artifact, selectedPerkHashes: perk },
+    weapons,
   };
-  // SP3b: cap/synergy/candidates/bound are recomputed per successor from scratch;
-  // incrementalize when more open dimensions are added.
   const cap = evaluateArtifactCapacity(env.capModel, perk);
   const realized = scoreSynergy(build, env.lookup);
-  const candidates = generateCandidates(env, frag, perk, cap, []);
-  const priority = bound(build, candidates.map((c) => c.element), env.lookup);
-  return { build, fragHashes: frag, perkHashes: perk, cap, realized, candidates, priority, key: stateKey(frag, perk) };
+  const candidates = generateCandidates(env, frag, perk, cap, weaponPicks);
+  // Open-slot bound: augment the addable set with each not-yet-picked slot's precomputed
+  // reachable-union (candidates alone under-cover a slot whose weapon isn't chosen yet).
+  const addable = candidates
+    .filter((c) => c.kind !== "weapon") // weapon-selection tags are covered by weaponReach
+    .map((c) => c.element);
+  for (const slot of env.openWeaponSlots) {
+    if (!pickBySlot.has(slot)) addable.push(...(env.weaponReach.get(slot) ?? []));
+  }
+  const priority = bound(build, addable, env.lookup);
+  return { build, fragHashes: frag, perkHashes: perk, cap, realized, candidates, priority,
+    weapons: weaponPicks, key: stateKey(frag, perk, weaponPicks) };
 }
 
 /** All successor states — one per legal move from `state`. */
 export function expand(state: SolverState, env: SolverEnv, bound: BoundFn): SolverState[] {
-  return state.candidates.map((c) =>
-    c.kind === "fragment"
-      ? makeState(env, [...state.fragHashes, c.hash], state.perkHashes, bound)
-      : makeState(env, state.fragHashes, [...state.perkHashes, c.hash], bound),
-  );
+  const out: SolverState[] = [];
+  for (const c of state.candidates) {
+    if (c.kind === "fragment") {
+      out.push(makeState(env, [...state.fragHashes, c.hash], state.perkHashes, bound, state.weapons));
+    } else if (c.kind === "artifactPerk") {
+      out.push(makeState(env, state.fragHashes, [...state.perkHashes, c.hash], bound, state.weapons));
+    } else if (c.kind === "weapon") {
+      // Choose a weapon for slot c.slot. Eager ammo prune: skip if it makes the
+      // no-double-Primary rule unsatisfiable across all decided weapons.
+      const decided = decidedAmmo(env, [...state.weapons, { slot: c.slot!, itemHash: c.hash, plugHashes: [] }]);
+      if (nonPowerAmmoInfeasible(decided)) continue;
+      out.push(makeState(env, state.fragHashes, state.perkHashes, bound,
+        [...state.weapons, { slot: c.slot!, itemHash: c.hash, plugHashes: [] }]));
+    } else { // weaponPerk
+      const nextPicks = state.weapons.map((p) =>
+        p.slot === c.slot ? { ...p, plugHashes: [...p.plugHashes, c.hash] } : p);
+      out.push(makeState(env, state.fragHashes, state.perkHashes, bound, nextPicks));
+    }
+  }
+  return out;
+}
+
+/** Ammo type of every DECIDED weapon (pinned base weapons + current picks). */
+function decidedAmmo(env: SolverEnv, picks: SolverState["weapons"]) {
+  const decided: Array<{ slot: WeaponSlot; ammoType: "primary" | "special" | "heavy" }> = [];
+  for (const sel of env.base.weapons) {
+    if (sel.itemHash === undefined) continue;
+    const w = env.lookup.weapon(sel.itemHash);
+    if (w) decided.push({ slot: sel.slot, ammoType: w.ammoType });
+  }
+  for (const p of picks) {
+    const w = env.lookup.weapon(p.itemHash);
+    if (w) decided.push({ slot: p.slot, ammoType: w.ammoType });
+  }
+  return decided;
 }
 
 /**
@@ -186,7 +254,18 @@ export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
       if (kids.length === 0) {
         // Terminal: no fragment slot or capacity-legal perk left → a filled,
         // deliverable build. Only filled builds are valid outputs (see docstring).
-        completed.push(state);
+        //
+        // A weapon-kind candidate can also vanish via the ammo eager-prune
+        // (`expand`'s `continue` in the "weapon" branch) rather than genuine
+        // exhaustion of the weapon dimension — that would leave an open weapon
+        // slot forever undecided. Such a state is a dead end (this partial can
+        // never legally reach a filled build), not a deliverable — so it is
+        // discarded rather than completed. Confirmed empirically: two open,
+        // both-Primary-only slots otherwise leak two single-slot-filled
+        // "completions" into `completed` without this guard.
+        if (state.weapons.length === env.openWeaponSlots.length) {
+          completed.push(state);
+        }
         continue;
       }
       for (const kid of kids) {

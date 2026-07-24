@@ -65,6 +65,20 @@ export function deriveWeaponPool(
  * by hash. An over-estimate (a slot yields one weapon + one plug per column, not all)
  * — safe for an admissible bound. Static per (slot, pins); compute once and cache.
  */
+/**
+ * Sound eager-prune condition for the no-double-Primary rule: infeasible iff BOTH
+ * non-power slots (kinetic, energy) are decided and neither uses Special ammo. A
+ * state with a non-power slot still open is NOT pruned (it may yet supply a Special)
+ * — soundness over tightness; the terminal build re-validates regardless.
+ */
+export function nonPowerAmmoInfeasible(
+  decided: Array<{ slot: WeaponSlot; ammoType: "primary" | "special" | "heavy" }>,
+): boolean {
+  const nonPower = decided.filter((d) => d.slot !== "power");
+  if (nonPower.length < 2) return false;
+  return !nonPower.some((d) => d.ammoType === "special");
+}
+
 export function deriveWeaponSlotReach(ctx: SolverContext, pool: LegalWeapon[]): BuildElement[] {
   const out: BuildElement[] = [];
   const seen = new Set<number>();
