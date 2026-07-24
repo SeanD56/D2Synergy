@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { EMPTY_TAGS, type Artifact, type Aspect, type Build, type Fragment } from "@/lib/types";
+import { EMPTY_TAGS, type Artifact, type Aspect, type Build, type Fragment, type Weapon } from "@/lib/types";
 import type { Lookup } from "@/lib/validation";
 import { synergyUpperBound } from "@/lib/synergy";
 import { neutralStatFit } from "@/lib/solver/stat-fit";
@@ -28,14 +28,31 @@ const artifact300: Artifact = { kind: "artifact", hash: 300, name: "Art", tiers:
   { hash: 402, name: "Inert", tags: EMPTY_TAGS },
 ] }] };
 
+// Weapon 500 (kinetic) has one open column offering "Something" — not the perk any
+// test pins, so a pin for an unrelated/nonexistent perk name empties its pool.
+const weapon500: Weapon = {
+  kind: "weapon", hash: 500, name: "W", icon: "", slot: "kinetic",
+  damageType: "kinetic", ammoType: "primary",
+  perkColumns: [{ socketIndex: 0, plugs: [{ hash: 5000, name: "Something" }] }],
+  tags: tag({ element: "kinetic" }),
+};
+
 const lookup = {
   aspect: (h: number) => (h === 100 ? aspect100 : undefined),
   fragment: (h: number) => F[h],
   artifact: (h: number) => (h === 300 ? artifact300 : undefined),
   artifactPerk: (h: number) => artifact300.tiers[0].perks.find((p) => p.hash === h),
+  weapon: (h: number) => (h === 500 ? weapon500 : undefined),
+  perkByName: () => undefined,
 } as unknown as Lookup;
 
-const ctx: SolverContext = { lookup, indexes: { elementToItems: { solar: [200, 201, 202] } } as unknown as SolverContext["indexes"] };
+const ctx: SolverContext = {
+  lookup,
+  indexes: {
+    elementToItems: { solar: [200, 201, 202] },
+    slotToWeapons: { kinetic: [500] },
+  } as unknown as SolverContext["indexes"],
+};
 
 const pinned = (): Build => ({
   subclass: { element: "solar", aspectHashes: [100], fragmentHashes: [] },
@@ -88,5 +105,12 @@ describe("buildSolverEnv — feasibility", () => {
     const over = pinned();
     over.subclass.fragmentHashes = [200, 201]; // cap is 1
     expect(buildSolverEnv(over, ctx)).toBeNull();
+  });
+
+  it("returns null when an open weapon slot has no legal weapon", () => {
+    const bad = pinned();
+    bad.weapons = [{ slot: "kinetic", itemHash: undefined, perkConstraints: [{ perkName: "Nonexistent" }] }];
+    // ctx has one kinetic weapon (500) in slotToWeapons, but it can't roll "Nonexistent".
+    expect(buildSolverEnv(bad, ctx)).toBeNull();
   });
 });

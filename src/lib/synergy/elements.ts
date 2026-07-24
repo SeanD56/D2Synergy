@@ -28,8 +28,12 @@ export function collectBuildElements(build: Build, lookup: Lookup): BuildElement
       if (weapon) add(weapon.hash, `weapon:${weapon.name}`, weapon.tags);
     }
     for (const c of w.perkConstraints) {
-      if (c.perkHash === undefined) continue; // name-only constraints unresolved in v1
-      const p = lookup.perk(c.perkHash);
+      // Resolve by hash first (future ingest may hash-tag plugs); otherwise fall
+      // back to the plug-NAME bridge (v1: weapon plug hashes are disjoint from the
+      // sandbox-perk namespace, so only the name resolves a tagged Perk).
+      const p =
+        (c.perkHash !== undefined ? lookup.perk(c.perkHash) : undefined) ??
+        (c.perkName !== undefined ? lookup.perkByName(c.perkName) : undefined);
       if (p) add(p.hash, `perk:${p.name}`, p.tags);
     }
   }

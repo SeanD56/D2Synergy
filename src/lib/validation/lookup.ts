@@ -28,6 +28,16 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     }
   }
 
+  const nonEmptyTags = (p: { tags: { produces: string[]; consumes: string[]; triggers: string[] } }) =>
+    p.tags.produces.length > 0 || p.tags.consumes.length > 0 || p.tags.triggers.length > 0;
+  const perksByName = new Map<string, (typeof dataset.perks)[number]>();
+  for (const p of dataset.perks) {
+    const key = p.name.toLowerCase();
+    const existing = perksByName.get(key);
+    // Prefer the first tagged perk for a name; otherwise keep the first seen.
+    if (!existing || (!nonEmptyTags(existing) && nonEmptyTags(p))) perksByName.set(key, p);
+  }
+
   return {
     weapon: (hash) => weapons.get(hash),
     armor: (hash) => armor.get(hash),
@@ -37,6 +47,7 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     subclass: (hash) => subclasses.get(hash),
     artifact: (hash) => artifacts.get(hash),
     perk: (hash) => perks.get(hash),
+    perkByName: (name) => perksByName.get(name.toLowerCase()),
     mod: (hash) => mods.get(hash),
     artifactPerk: (hash) => artifactPerks.get(hash),
   };

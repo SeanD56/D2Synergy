@@ -34,3 +34,22 @@ describe("createLookup — perk/mod/artifactPerk", () => {
     expect(lookup.artifactPerk(999)).toBeUndefined();
   });
 });
+
+describe("perkByName — weapon plug-name bridge", () => {
+  it("perkByName resolves case-insensitively, preferring tagged perks", () => {
+    const dataset = {
+      weapons: [], armor: [], armorSets: [], aspects: [], fragments: [],
+      subclasses: [], stats: [], mods: [], artifacts: [],
+      perks: [
+        { kind: "perk", hash: 10, name: "Voltshot", icon: "", description: "",
+          tags: { produces: ["jolt"], consumes: [], triggers: [] } },
+        { kind: "perk", hash: 11, name: "Arrowhead Brake", icon: "", description: "",
+          tags: { produces: [], consumes: [], triggers: [] } },
+      ],
+    } as unknown as DerivedDataset;
+    const lookup = createLookup(dataset);
+    expect(lookup.perkByName("voltshot")?.hash).toBe(10);
+    expect(lookup.perkByName("Arrowhead Brake")?.hash).toBe(11);
+    expect(lookup.perkByName("nope")).toBeUndefined();
+  });
+});

@@ -3,7 +3,7 @@ import type { PerkConstraint, WeaponPerkColumn, WeaponSlot } from "@/lib/types";
 import type { Rule, Violation } from "./types";
 
 /** Columns of `weapon` that can roll the constrained perk. */
-function columnsFor(
+export function columnsFor(
   columns: WeaponPerkColumn[],
   constraint: PerkConstraint,
 ): WeaponPerkColumn[] {
