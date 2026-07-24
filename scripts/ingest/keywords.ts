@@ -8,7 +8,7 @@
  * keyword logic.
  */
 
-import type { Element, KeywordTags } from "../../src/lib/types";
+import type { ChampionStun, Element, KeywordTags } from "../../src/lib/types";
 
 /** Text + element context handed to a tagger for one entity. */
 export interface TagInput {
@@ -74,6 +74,18 @@ export const TRIGGER_VOCABULARY: Record<string, string[]> = {
   pickup_orb: ["orb of power", "orbs of power"],
 };
 
+/**
+ * Champion-stun vocabulary. Deliberately narrow: these phrases feed
+ * `championStuns` ONLY and are never routed through the producer/consumer cue
+ * logic. Phrase coverage is measured against the live manifest during ingest
+ * (see the slice-2a spec, Execution order step 2) — widen it there, with counts.
+ */
+export const CHAMPION_VOCABULARY: Record<ChampionStun, string[]> = {
+  barrier: ["anti-barrier", "barrier champion", "pierce the shields"],
+  overload: ["overload"],
+  unstoppable: ["unstoppable"],
+};
+
 /** Sentence cues that a keyword is being *produced* (applied/created/granted). */
 const PRODUCER_CUE =
   /\b(make|makes|making|cause|causes|causing|appl(?:y|ies|ying)|create|creates|creating|grant|grants|granting|gain|gains|become|becomes|becoming|emit|emits|generat|unleash|inflict|inflicts)\b/;
@@ -93,6 +105,7 @@ export function createKeywordTagger(): Tagger {
     const produces = new Set<string>();
     const consumes = new Set<string>();
     const triggers = new Set<string>();
+    const championStuns = new Set<ChampionStun>();
 
     for (const sentence of text.toLowerCase().split(/[.\n;]+/)) {
       const isProducer = PRODUCER_CUE.test(sentence);
@@ -108,6 +121,9 @@ export function createKeywordTagger(): Tagger {
       for (const [trigger, phrases] of Object.entries(TRIGGER_VOCABULARY)) {
         if (phrases.some((phrase) => sentence.includes(phrase))) triggers.add(trigger);
       }
+      for (const [stun, phrases] of Object.entries(CHAMPION_VOCABULARY) as Array<[ChampionStun, string[]]>) {
+        if (phrases.some((phrase) => sentence.includes(phrase))) championStuns.add(stun);
+      }
     }
 
     return {
@@ -115,6 +131,7 @@ export function createKeywordTagger(): Tagger {
       consumes: [...consumes],
       triggers: [...triggers],
       element,
+      ...(championStuns.size > 0 ? { championStuns: [...championStuns] } : {}),
     };
   };
 }
