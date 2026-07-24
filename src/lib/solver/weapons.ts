@@ -81,6 +81,9 @@ export function nonPowerAmmoInfeasible(
 
 export function deriveWeaponSlotReach(ctx: SolverContext, pool: LegalWeapon[]): BuildElement[] {
   const out: BuildElement[] = [];
+  // Dedup by hash across weapon hashes and resolved perk hashes. Safe: Destiny hashes are
+  // a single 32-bit global space; weapon/perk collision is astronomically unlikely. If one
+  // ever occurred, the second entry drops and reach under-counts (admissibility risk), noted here.
   const seen = new Set<number>();
   const add = (hash: number, source: string, tags: BuildElement["tags"]) => {
     if (seen.has(hash)) return;

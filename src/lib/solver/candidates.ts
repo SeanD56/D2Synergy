@@ -124,6 +124,9 @@ export function generateCandidates(
     for (const col of legal.openColumns) {
       if (col.plugs.some((p) => chosen.has(p.hash))) continue; // column already filled
       for (const plug of col.plugs) {
+        // Note: candidate/element hash is plugItemHash (identity for move/state), while realized
+        // synergy and weaponReach key by resolved sandbox-perk hash (name bridge). Hash asymmetry
+        // is safe—only over-counts admissible bound, never under-counts. Unifies when Option A lands.
         out.push({ kind: "weaponPerk", hash: plug.hash, slot, column: col.socketIndex,
           element: { hash: plug.hash, source: `perk:${plug.name}`, tags: env.resolvePlugTags(plug.name) } });
       }
