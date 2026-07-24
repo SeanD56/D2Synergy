@@ -1,9 +1,9 @@
-import type { ArtifactPerk, Build, Fragment, Hash, SubclassElement } from "@/lib/types";
+import type { ArtifactPerk, Build, Fragment, Hash, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
 import { buildCapacityModel, evaluateArtifactCapacity } from "@/lib/validation";
 
-import type { SynergyScore } from "@/lib/synergy";
+import type { BuildElement, SynergyScore } from "@/lib/synergy";
 import { scoreSynergy } from "@/lib/synergy";
 
 import {
@@ -14,6 +14,7 @@ import {
 } from "./candidates";
 import { neutralStatFit } from "./stat-fit";
 import type { BoundFn, SolveOptions, SolverContext, StatFit } from "./types";
+import { deriveWeaponPool, deriveWeaponSlotReach, type LegalWeapon } from "./weapons";
 
 export const DEFAULT_BEAM_WIDTH = 16;
 export const DEFAULT_TOP_N = 5;
@@ -32,6 +33,12 @@ export interface SolverEnv {
   /** Top-N cut applied by solve() during final ranking; unused inside the beam. */
   topN: number;
   statFit: StatFit;
+  /** Weapon slots the solver must fill (itemHash undefined in the base). */
+  openWeaponSlots: WeaponSlot[];
+  /** Membership-filtered legal weapons per open slot. */
+  weaponPool: Map<WeaponSlot, LegalWeapon[]>;
+  /** Precomputed loose reachable-union per open slot (for the open-slot bound). */
+  weaponReach: Map<WeaponSlot, BuildElement[]>;
 }
 
 /** A partial build in the beam. `candidates` are its legal add-one-element moves. */
@@ -78,6 +85,19 @@ export function buildSolverEnv(
   );
   if (base.subclass.fragmentHashes.length > fragmentCap) return null;
 
+  const openWeaponSlots: WeaponSlot[] = [];
+  const weaponPool = new Map<WeaponSlot, LegalWeapon[]>();
+  const weaponReach = new Map<WeaponSlot, BuildElement[]>();
+  for (const sel of base.weapons) {
+    if (sel.itemHash !== undefined) continue; // pinned slot — not searched
+    const pins: PerkConstraint[] = sel.perkConstraints;
+    const pool = deriveWeaponPool(ctx, sel.slot, pins);
+    if (pool.length === 0) return null; // no weapon can satisfy this slot's pins
+    openWeaponSlots.push(sel.slot);
+    weaponPool.set(sel.slot, pool);
+    weaponReach.set(sel.slot, deriveWeaponSlotReach(ctx, pool));
+  }
+
   return {
     ctx,
     lookup: ctx.lookup,
@@ -90,6 +110,9 @@ export function buildSolverEnv(
     beamWidth: options.beamWidth ?? DEFAULT_BEAM_WIDTH,
     topN: options.topN ?? DEFAULT_TOP_N,
     statFit: options.statFit ?? neutralStatFit,
+    openWeaponSlots,
+    weaponPool,
+    weaponReach,
   };
 }
 

@@ -2,6 +2,8 @@ import type { PerkConstraint, Weapon, WeaponPerkColumn, WeaponSlot } from "@/lib
 
 import { columnsFor } from "@/lib/validation";
 
+import type { BuildElement } from "@/lib/synergy";
+
 import type { SolverContext } from "./types";
 
 /** A slot weapon that can satisfy the pins, with the columns the solver must fill. */
@@ -55,4 +57,30 @@ export function deriveWeaponPool(
     });
   }
   return out.sort((a, b) => a.weapon.hash - b.weapon.hash);
+}
+
+/**
+ * Loose reachable-union of tagged elements for a slot: every legal weapon's own
+ * element-tags plus every open-column plug resolved through the name bridge. Deduped
+ * by hash. An over-estimate (a slot yields one weapon + one plug per column, not all)
+ * — safe for an admissible bound. Static per (slot, pins); compute once and cache.
+ */
+export function deriveWeaponSlotReach(ctx: SolverContext, pool: LegalWeapon[]): BuildElement[] {
+  const out: BuildElement[] = [];
+  const seen = new Set<number>();
+  const add = (hash: number, source: string, tags: BuildElement["tags"]) => {
+    if (seen.has(hash)) return;
+    seen.add(hash);
+    out.push({ hash, source, tags });
+  };
+  for (const { weapon, openColumns } of pool) {
+    add(weapon.hash, `weapon:${weapon.name}`, weapon.tags);
+    for (const col of openColumns) {
+      for (const plug of col.plugs) {
+        const p = ctx.lookup.perkByName(plug.name);
+        if (p) add(p.hash, `perk:${p.name}`, p.tags);
+      }
+    }
+  }
+  return out;
 }
