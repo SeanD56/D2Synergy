@@ -20,6 +20,7 @@ const lookup = {
   fragment: (h: number) => (h === 11 ? { hash: 11, name: "Frag", tags: tags({ consumes: ["scorch"] }) } : undefined),
   weapon: (h: number) => (h === 12 ? { hash: 12, name: "Gun", tags: tags({ element: "void" }) } : undefined),
   perk: (h: number) => (h === 13 ? { hash: 13, name: "Frenzy", tags: tags({ produces: ["volatile"] }) } : undefined),
+  perkByName: (_n: string) => undefined, // name-only constraints in v1 tests are unresolved
   armor: (h: number) => (h === 14 ? { hash: 14, name: "Exotic", tags: tags({ consumes: ["volatile"] }) } : undefined),
   mod: (h: number) => (h === 15 ? { hash: 15, name: "Mod", tags: tags({ triggers: ["grenade"] }) } : undefined),
   artifactPerk: (h: number) => (h === 16 ? { hash: 16, name: "AP", tags: tags({ produces: ["jolt"] }) } : undefined),

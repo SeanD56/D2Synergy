@@ -76,6 +76,8 @@ export interface Lookup {
   subclass(hash: Hash): Subclass | undefined;
   artifact(hash: Hash): Artifact | undefined;
   perk(hash: Hash): Perk | undefined;
+  /** Resolve a (sandbox) perk by case-insensitive name — the weapon plug-name bridge. */
+  perkByName(name: string): Perk | undefined;
   mod(hash: Hash): Mod | undefined;
   artifactPerk(hash: Hash): ArtifactPerk | undefined;
 }
