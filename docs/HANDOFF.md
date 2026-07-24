@@ -60,6 +60,14 @@ Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[
 - **Explicitly deferred (do NOT build now):** champion/anti-barrier coverage (text-only data, needs extraction pass); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); mod energy legality (deprecated); OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
 
 ## Decisions resolved (do not relitigate)
+- **SP3b slice-1 (weapons) shipped** the runtime plug-NAME synergy bridge (Option B):
+  `Lookup.perkByName` + `collectBuildElements` name fallback. Weapon plug hashes are a
+  disjoint namespace from `perks.json`, so roll synergy resolves by plug NAME to a tagged
+  sandbox `Perk`. FOLLOW-UP (Option A, deferred): tag weapon plugs at ingest in
+  `scripts/ingest/transform.ts` (mirror the aspect/fragment `tags: tag({ text: itemText(...) })`
+  call, add `tags` to `WeaponPerk`), to be folded into the NEXT legitimate re-ingest — NOT
+  triggered standalone (full manifest re-fetch = unrelated season churn + OOM risk). Once
+  landed, plugs carry hash tags and the name bridge degrades to a harmless fallback.
 - **SP3a optimistic bound lives IN `@/lib/synergy` (`synergyUpperBound`), not the solver (CONFIRMED by user this session).** *Why:* an admissible bound needs `scoreSynergy`'s weighting internals, which the seam hides; colocating it with the scorer keeps the Phase-3 embedding layer drop-in (embeddings supply their own bound). Prune key is the *single* admissible upper bound, not `realized + separate-gain` (the split is unsound: `scoreSynergy` is non-monotonic under adding elements).
 - **SP3a beam returns only terminal (fully-filled) builds; ranks by realized synergy.** *Why:* the Phase-1 game floors make fill-to-cap a hard requirement (underfilled builds are invalid deliverables), so terminal-only routing is correct despite `scoreSynergy` non-monotonicity; the admissible bound still retains the best *filled* build. **SP3b's dynamic caps (solver-chosen aspects) must revisit this** — if underfill becomes legal, terminal-only would need best-partial tracking.
 - **SP3 is sliced; SP3a = fragments + artifact perks.** *Why:* the dominant risk is beam-search-vs-pairwise-synergy (delayed reward). A slice of two *synergy-coupled* subset-dimensions forces the beam to solve delayed reward on a small surface, before scaling all dimensions in SP3b. Not one independent-dimension pair (proves only plumbing), not one dimension (cross-dim synergy never appears).
