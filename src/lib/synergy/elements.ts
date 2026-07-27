@@ -28,17 +28,23 @@ export function collectBuildElements(build: Build, lookup: Lookup): BuildElement
       if (weapon) add(weapon.hash, `weapon:${weapon.name}`, weapon.tags);
     }
     for (const c of w.perkConstraints) {
-      // Resolve a plug's tags by HASH from the ingest side table first; then as a
-      // sandbox perk by hash; then via the legacy plug-NAME bridge (kept as a
-      // fallback for datasets emitted before the side table existed).
+      // TAGS resolve by plug HASH from the ingest side table first; then as a sandbox perk
+      // by hash; then via the legacy plug-NAME bridge (kept as a fallback for datasets
+      // emitted before the side table existed).
+      //
+      // The element is KEYED at synergy-effect granularity though — resolved sandbox-perk
+      // hash where the name bridges, else the plug hash — matching deriveWeaponSlotReach so
+      // realized scoring and the optimistic bound dedup identically. Keying by plug hash
+      // instead would count two weapons rolling the same perk as TWO producers while reach
+      // counts one: that both changes slice-1 scoring semantics and opens an admissibility
+      // gap when a single weapon offers one perk in two columns.
+      const bridged = c.perkName !== undefined ? lookup.perkByName(c.perkName) : undefined;
       const sideTags = c.perkHash !== undefined ? lookup.plugTags(c.perkHash) : undefined;
       if (sideTags && c.perkHash !== undefined) {
-        add(c.perkHash, `perk:${c.perkName ?? c.perkHash}`, sideTags);
+        add(bridged?.hash ?? c.perkHash, `perk:${c.perkName ?? c.perkHash}`, sideTags);
         continue;
       }
-      const p =
-        (c.perkHash !== undefined ? lookup.perk(c.perkHash) : undefined) ??
-        (c.perkName !== undefined ? lookup.perkByName(c.perkName) : undefined);
+      const p = (c.perkHash !== undefined ? lookup.perk(c.perkHash) : undefined) ?? bridged;
       if (p) add(p.hash, `perk:${p.name}`, p.tags);
     }
   }
