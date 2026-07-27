@@ -19,7 +19,9 @@ import type {
   DatasetMeta,
   DerivedDataset,
   Fragment,
+  Hash,
   Indexes,
+  KeywordTags,
   Mod,
   Perk,
   Stat,
@@ -55,6 +57,8 @@ export const loadMods = () => loadJson<Mod[]>("mods.json");
 export const loadArtifacts = () => loadJson<Artifact[]>("artifacts.json");
 export const loadPerks = () => loadJson<Perk[]>("perks.json");
 export const loadStats = () => loadJson<Stat[]>("stats.json");
+export const loadPlugTags = () =>
+  loadJson<Record<Hash, KeywordTags>>("plug-tags.json");
 export const loadIndexes = () => loadJson<Indexes>("indexes.json");
 
 /** Load the entire derived dataset (all files in parallel). */
@@ -71,6 +75,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     artifacts,
     perks,
     stats,
+    plugTags,
     indexes,
   ] = await Promise.all([
     loadMeta(),
@@ -84,6 +89,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     loadArtifacts(),
     loadPerks(),
     loadStats(),
+    loadPlugTags(),
     loadIndexes(),
   ]);
 
@@ -99,6 +105,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     artifacts,
     perks,
     stats,
+    plugTags,
     indexes,
   };
 }

@@ -46,7 +46,9 @@ function weaponEnv(ctx: SolverContext) {
     openWeaponSlots: ["kinetic" as const],
     weaponPool: new Map<WeaponSlot, typeof pool>([["kinetic", pool]]),
     weaponReach: new Map<WeaponSlot, ReturnType<typeof deriveWeaponSlotReach>>([["kinetic", deriveWeaponSlotReach(ctx, pool)]]),
-    resolvePlugTags: (n: string) => ctx.lookup.perkByName(n)?.tags ?? { produces: [], consumes: [], triggers: [] },
+    resolvePlugTags: (plug: { hash: number; name: string }) =>
+      ctx.lookup.plugTags(plug.hash) ??
+      ctx.lookup.perkByName(plug.name)?.tags ?? { produces: [], consumes: [], triggers: [] },
   };
 }
 

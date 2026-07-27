@@ -75,9 +75,13 @@ export function nonPowerAmmoInfeasible(
 
 /**
  * Loose reachable-union of tagged elements for a slot: every legal weapon's own
- * element-tags plus every open-column plug resolved through the name bridge. Deduped
- * by hash. An over-estimate (a slot yields one weapon + one plug per column, not all)
- * — safe for an admissible bound. Static per (slot, pins); compute once and cache.
+ * element-tags plus every open-column plug, whose TAGS resolve from the ingest side
+ * table by plug hash (falling back to the name bridge). Deduped by synergy-effect
+ * identity (resolved sandbox-perk hash where available, else plug hash) — reach is a
+ * bound input, not a move identity, so it deliberately does NOT key by plug hash the
+ * way `weaponPerk` candidates do; see the comment at the dedup site. An over-estimate
+ * (a slot yields one weapon + one plug per column, not all) — safe for an admissible
+ * bound. Static per (slot, pins); compute once and cache.
  */
 export function deriveWeaponSlotReach(ctx: SolverContext, pool: LegalWeapon[]): BuildElement[] {
   const out: BuildElement[] = [];
@@ -94,8 +98,18 @@ export function deriveWeaponSlotReach(ctx: SolverContext, pool: LegalWeapon[]): 
     add(weapon.hash, `weapon:${weapon.name}`, weapon.tags);
     for (const col of openColumns) {
       for (const plug of col.plugs) {
-        const p = ctx.lookup.perkByName(plug.name);
-        if (p) add(p.hash, `perk:${p.name}`, p.tags);
+        const bridged = ctx.lookup.perkByName(plug.name);
+        const tags = ctx.lookup.plugTags(plug.hash) ?? bridged?.tags;
+        if (!tags) continue;
+        // Dedup at SYNERGY-EFFECT granularity, NOT plug granularity. Reach is consumed only as
+        // the `addable` bag handed to synergyUpperBound, and on real data hundreds of distinct
+        // plugItemHashes share one sandbox perk — so keying by plug hash stops deduping them,
+        // multiplies duplicate producers, and inflates the bound (measured: 11,190 -> 66,071
+        // bound calls, blowing the cost tripwire). Prefer the resolved sandbox-perk hash, which
+        // is the exact dedup the pre-side-table baseline used, so bound tightness and
+        // admissibility are unchanged; fall back to the plug hash only when the name bridge
+        // cannot resolve (side-table-only plugs).
+        add(bridged?.hash ?? plug.hash, `perk:${plug.name}`, tags);
       }
     }
   }

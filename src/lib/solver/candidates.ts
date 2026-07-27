@@ -70,8 +70,8 @@ interface CandidateEnv {
   capModel: CapacityModel;
   openWeaponSlots: WeaponSlot[];
   weaponPool: Map<WeaponSlot, LegalWeapon[]>;
-  /** Name-bridge resolver for weapon plug tags (empty tags if unmatched). */
-  resolvePlugTags: (name: string) => KeywordTags;
+  /** Plug → tags resolver: side table by hash, then the name bridge, then empty. */
+  resolvePlugTags: (plug: { hash: Hash; name: string }) => KeywordTags;
 }
 
 /**
@@ -124,11 +124,12 @@ export function generateCandidates(
     for (const col of legal.openColumns) {
       if (col.plugs.some((p) => chosen.has(p.hash))) continue; // column already filled
       for (const plug of col.plugs) {
-        // Note: candidate/element hash is plugItemHash (identity for move/state), while realized
-        // synergy and weaponReach key by resolved sandbox-perk hash (name bridge). Hash asymmetry
-        // is safe—only over-counts admissible bound, never under-counts. Unifies when Option A lands.
+        // Candidate/element hash is the plugItemHash, and the side table is keyed by the same
+        // hash — so a plug's TAGS now resolve on its own identity (slice 2a), no name bridge
+        // needed. Note `weaponReach` still dedups at sandbox-perk granularity on purpose: it is
+        // a bound input, not a move identity (see deriveWeaponSlotReach).
         out.push({ kind: "weaponPerk", hash: plug.hash, slot, column: col.socketIndex,
-          element: { hash: plug.hash, source: `perk:${plug.name}`, tags: env.resolvePlugTags(plug.name) } });
+          element: { hash: plug.hash, source: `perk:${plug.name}`, tags: env.resolvePlugTags(plug) } });
       }
     }
   }

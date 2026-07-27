@@ -27,6 +27,7 @@ import type {
   Element,
   Fragment,
   Hash,
+  KeywordTags,
   Mod,
   Perk,
   Stat,
@@ -52,6 +53,12 @@ export interface TransformResult {
   artifacts: Artifact[];
   perks: Perk[];
   stats: Stat[];
+  /**
+   * Weapon plug hash → its keyword tags, for plugs that have any. A SIDE TABLE
+   * rather than a `tags` field on `WeaponPerk`: there are ~112k plug entries but
+   * only ~1k distinct plug hashes, so inlining costs ~7MB against ~0.08MB here.
+   */
+  plugTags: Record<Hash, KeywordTags>;
 }
 
 const values = <T>(table: Record<number, T> | undefined): T[] =>
@@ -276,7 +283,7 @@ function transformWeapons(
   slice: ManifestSlice,
   c: Classifier,
   tag: Tagger,
-): Weapon[] {
+): { weapons: Weapon[]; plugTags: Record<Hash, KeywordTags> } {
   const items = slice.DestinyInventoryItemDefinition;
   const plugSets = slice.DestinyPlugSetDefinition;
   const perks = slice.DestinySandboxPerkDefinition as Record<
@@ -284,6 +291,7 @@ function transformWeapons(
     DestinySandboxPerkDefinition
   >;
   const out: Weapon[] = [];
+  const plugItems = new Map<Hash, DestinyInventoryItemDefinition | undefined>();
 
   for (const item of values(items)) {
     if (!c.isWeapon(item)) continue;
@@ -316,6 +324,7 @@ function transformWeapons(
           const plugName = name(items[plug.plugItemHash]);
           if (!plugName || plugName.toLowerCase() === "empty") continue;
           seen.add(plug.plugItemHash);
+          plugItems.set(plug.plugItemHash, items[plug.plugItemHash]);
           plugs.push({ hash: plug.plugItemHash, name: plugName });
         }
         if (plugs.length) perkColumns.push({ socketIndex: index, plugs });
@@ -343,7 +352,18 @@ function transformWeapons(
       tags: tag({ text: itemText(item, perks), element: damageType }),
     });
   }
-  return out;
+
+  const plugTags: Record<Hash, KeywordTags> = {};
+  for (const [hash, plugItem] of plugItems) {
+    const tags = tag({ text: itemText(plugItem, perks) });
+    const hasAny =
+      tags.produces.length > 0 ||
+      tags.consumes.length > 0 ||
+      tags.triggers.length > 0 ||
+      (tags.championStuns?.length ?? 0) > 0;
+    if (hasAny) plugTags[hash] = tags;
+  }
+  return { weapons: out, plugTags };
 }
 
 function transformArmor(
@@ -588,16 +608,18 @@ export function transformAll(
   classifier: Classifier,
   tag: Tagger,
 ): TransformResult {
+  const { weapons, plugTags } = transformWeapons(slice, classifier, tag);
   return {
     subclasses: transformSubclasses(slice, classifier),
     aspects: transformAspects(slice, classifier, tag),
     fragments: transformFragments(slice, classifier, tag),
-    weapons: transformWeapons(slice, classifier, tag),
+    weapons,
     armor: transformArmor(slice, classifier, tag),
     armorSets: transformArmorSets(slice, tag),
     mods: transformMods(slice, classifier, tag),
     artifacts: transformArtifacts(slice, classifier, tag),
     perks: transformPerks(slice, tag),
     stats: transformStats(slice),
+    plugTags,
   };
 }

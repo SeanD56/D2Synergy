@@ -48,6 +48,7 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     artifact: (hash) => artifacts.get(hash),
     perk: (hash) => perks.get(hash),
     perkByName: (name) => perksByName.get(name.toLowerCase()),
+    plugTags: (hash) => dataset.plugTags?.[hash],
     mod: (hash) => mods.get(hash),
     artifactPerk: (hash) => artifactPerks.get(hash),
   };

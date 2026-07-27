@@ -28,9 +28,14 @@ export function collectBuildElements(build: Build, lookup: Lookup): BuildElement
       if (weapon) add(weapon.hash, `weapon:${weapon.name}`, weapon.tags);
     }
     for (const c of w.perkConstraints) {
-      // Resolve by hash first (future ingest may hash-tag plugs); otherwise fall
-      // back to the plug-NAME bridge (v1: weapon plug hashes are disjoint from the
-      // sandbox-perk namespace, so only the name resolves a tagged Perk).
+      // Resolve a plug's tags by HASH from the ingest side table first; then as a
+      // sandbox perk by hash; then via the legacy plug-NAME bridge (kept as a
+      // fallback for datasets emitted before the side table existed).
+      const sideTags = c.perkHash !== undefined ? lookup.plugTags(c.perkHash) : undefined;
+      if (sideTags && c.perkHash !== undefined) {
+        add(c.perkHash, `perk:${c.perkName ?? c.perkHash}`, sideTags);
+        continue;
+      }
       const p =
         (c.perkHash !== undefined ? lookup.perk(c.perkHash) : undefined) ??
         (c.perkName !== undefined ? lookup.perkByName(c.perkName) : undefined);

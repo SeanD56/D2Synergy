@@ -11,11 +11,14 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { DatasetMeta, Indexes } from "../../src/lib/types";
-import { DATA_DIR, INDEXES_PATH, META_PATH } from "./paths";
+import { DATA_DIR, INDEXES_PATH, META_PATH, PLUG_TAGS_PATH } from "./paths";
 import type { TransformResult } from "./transform";
 
+/** Keys of `TransformResult` that serialize as plain entity arrays. */
+type EntityKey = Exclude<keyof TransformResult, "plugTags">;
+
 /** Output filename → the `TransformResult` array it serializes. */
-const ENTITY_FILES: Array<[file: string, key: keyof TransformResult]> = [
+const ENTITY_FILES: Array<[file: string, key: EntityKey]> = [
   ["subclasses.json", "subclasses"],
   ["aspects.json", "aspects"],
   ["fragments.json", "fragments"],
@@ -48,6 +51,9 @@ export async function emit(options: EmitOptions): Promise<DatasetMeta> {
   }
 
   await writeFile(INDEXES_PATH, JSON.stringify(options.indexes));
+
+  await writeFile(PLUG_TAGS_PATH, JSON.stringify(options.result.plugTags));
+  counts.plugTags = Object.keys(options.result.plugTags).length;
 
   const meta: DatasetMeta = {
     manifestVersion: options.manifestVersion,
