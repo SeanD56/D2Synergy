@@ -1,5 +1,15 @@
 # SP3b slice 2a — Dataset signals (exotic armor, mods, plugs, champions) Implementation Plan
 
+> ## ✅ COMPLETE — all 7 tasks shipped, merged to `main` as `47d6a35` (2026-07-27).
+> Reviewed ready-to-merge: no Critical, no merge-blocking Important. Final gate 176/176 tests (34 files), `tsc` + `eslint` clean.
+>
+> **Two tasks did not survive contact with real data, and the record matters more than the plan text below:**
+> - **Task 3 was reopened.** Its original implementation emitted **0/348** exotics because armor exposes no `INTRINSIC TRAITS` socket category at all — the fixture had encoded the same unmeasured assumption as the code, so 5 tests passed against a world that does not exist. Rewritten in `650286b` from a two-pass measurement: the trait lives in `ARMOR PERKS`, identified by `singleInitialItemHash` + a display name + a sandbox perk. Final: 339/348 `exoticPerkHash`, 265/348 tagged.
+> - **Task 4's reach keying was wrong as specified.** Keying plug elements by plug hash inflated `synergyUpperBound` from 11,190 to 66,071 bound calls and opened an admissibility gap; fixed in `a5fd2ea` to dedup at synergy-effect granularity.
+>
+> Full deviation record: `.superpowers/sdd/2026-07-24-phase2-sp3b-slice2a-dataset-signals/progress.md`.
+> Measured outcomes + acceptance floors: the spec's "Measured" table.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the derived dataset the four signals SP3b slice 2b needs — exotic-armor intrinsic tags, mod slot restriction, weapon plug tags by hash, and champion-stun coverage — in a single manifest re-ingest.
