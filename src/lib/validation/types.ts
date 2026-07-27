@@ -7,6 +7,7 @@ import type {
   Build,
   Fragment,
   Hash,
+  KeywordTags,
   Mod,
   Perk,
   Subclass,
@@ -78,6 +79,12 @@ export interface Lookup {
   perk(hash: Hash): Perk | undefined;
   /** Resolve a (sandbox) perk by case-insensitive name — the weapon plug-name bridge. */
   perkByName(name: string): Perk | undefined;
+  /**
+   * Keyword tags for a weapon plug, by PLUG hash (the ingest side table). Plug
+   * hashes are a different namespace from `perks.json`, so this — not `perk()` —
+   * is the primary route to a roll's synergy.
+   */
+  plugTags(hash: Hash): KeywordTags | undefined;
   mod(hash: Hash): Mod | undefined;
   artifactPerk(hash: Hash): ArtifactPerk | undefined;
 }

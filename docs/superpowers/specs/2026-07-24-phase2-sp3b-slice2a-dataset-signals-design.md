@@ -174,11 +174,35 @@ curated perk names in `weapon-curated-resolution.test.ts`.
 - Plug-tags collection: distinct-hash dedup; empty entries omitted.
 - `collectBuildElements` hash-first resolution with name fallback preserved.
 
-**New `tests/dataset.contract.test.ts` (real data, floors from step 2):**
-- Exotic tag coverage ≥ floor; `exoticPerkHash` populated for ~all exotics.
-- Mods carrying `slotRestriction` ≥ floor; every mod carries a non-empty `plugCategory`.
-- `plug-tags.json` non-empty with ≥ floor distinct tagged plugs.
-- `championStuns` present on ≥ floor entities.
+### Measured (manifest `244213.26.06.29.2000-1-bnet.65583`)
+
+Single inspection fetch, then a two-pass rule measurement. Percentages are of 348 exotic
+armor entries (141 distinct names — the manifest carries duplicates).
+
+| Signal | Before slice 2a | Measured after | Floor chosen |
+| --- | --- | --- | --- |
+| Exotic `exoticPerkHash` | 0 / 348 (0.0%) | **339 / 348 (97.4%)** | ≥ 90% |
+| Exotic non-empty tags | 2 / 348 (0.6%) | **263 / 348 (75.6%)** | ≥ 65% |
+| Mods with `slotRestriction` | 0 / 512 | **316 / 512 (61.7%)** † | ≥ 55% |
+| Distinct tagged plugs | 0 (side table did not exist) | **280** | ≥ 200 |
+| Entities with `championStuns` | 0 | **188** (unstoppable 77, overload 62, barrier 51) | ≥ 120 |
+| Artifacts / tier shapes | 7 / `[2,3,2]` | **7 / `[2,3,2]` (all)** | exact |
+
+† 313 was measured directly; the `enhancements.class` probe added afterwards covers the 3 mods
+the same run's identifier histogram reported for that family, giving 316. The re-ingest confirms it.
+
+Floors sit meaningfully below measured so ordinary season drift does not fail the suite.
+Two findings drove the Task-3 rework: armor exposes **no `INTRINSIC TRAITS` socket category**
+(only `ARMOR PERKS` / `ARMOR MODS` / `ARMOR COSMETICS`), and within `ARMOR PERKS` the trait is
+identified by `singleInitialItemHash` + a display name + a sandbox perk. The 9 unresolved
+exotics are the Aeon Cult set, whose trait ships as a mod (`enhancements.exotic.aeon_cult`).
+The 196 unmapped mods are activity/seasonal families that correctly stay `undefined`.
+
+**New `tests/dataset.contract.test.ts` (real data, floors from the table above):**
+- Exotic tag coverage ≥ 65%; `exoticPerkHash` populated for ≥ 90% of exotics.
+- Mods carrying `slotRestriction` ≥ 55%; every mod carries a non-empty `plugCategory`.
+- `plug-tags.json` non-empty with ≥ 200 distinct tagged plugs.
+- `championStuns` present on ≥ 120 entities.
 - Artifact structural invariants: 3 tiers, `slots` summing to 7.
 
 **Curated spot-checks:** `Swarmers → tangle, unravel`, plus one exotic per element chosen after

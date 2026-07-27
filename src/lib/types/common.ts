@@ -43,6 +43,14 @@ export type ArmorSlot = "helmet" | "arms" | "chest" | "legs" | "class";
 export type Keyword = string;
 
 /**
+ * A champion type a source can stun. Modelled separately from the
+ * producer/consumer keyword graph because champion stunning is **coverage**, not
+ * a chain: a second anti-barrier source adds nothing, so it must never reach the
+ * chain scorer (which rewards depth).
+ */
+export type ChampionStun = "barrier" | "overload" | "unstoppable";
+
+/**
  * Normalized synergy tags attached to any entity that participates in the
  * producer→consumer keyword graph. The load-bearing derived layer for both the
  * rules-based synergy engine and the future graph-embedding layer.
@@ -56,6 +64,12 @@ export interface KeywordTags {
   element?: Element;
   /** What causes the effect (e.g. "ability_kill", "grenade", "finisher"). */
   triggers: Keyword[];
+  /**
+   * Champion types this entity can stun. Optional and omitted when empty, so
+   * entities with no champion phrasing emit exactly the bytes they did before
+   * this field existed.
+   */
+  championStuns?: ChampionStun[];
 }
 
 /** An empty tag set — the neutral value before/without keyword scanning. */

@@ -27,6 +27,7 @@ import type {
   Element,
   Fragment,
   Hash,
+  KeywordTags,
   Mod,
   Perk,
   Stat,
@@ -38,6 +39,7 @@ import type {
 import type { Classifier } from "./classify";
 import type { ManifestSlice } from "./fetchManifest";
 import type { Tagger } from "./keywords";
+import { modSlotFromPlugCategory } from "./mod-slots";
 
 /** All derived entity arrays produced by a single transform pass. */
 export interface TransformResult {
@@ -51,6 +53,12 @@ export interface TransformResult {
   artifacts: Artifact[];
   perks: Perk[];
   stats: Stat[];
+  /**
+   * Weapon plug hash → its keyword tags, for plugs that have any. A SIDE TABLE
+   * rather than a `tags` field on `WeaponPerk`: there are ~112k plug entries but
+   * only ~1k distinct plug hashes, so inlining costs ~7MB against ~0.08MB here.
+   */
+  plugTags: Record<Hash, KeywordTags>;
 }
 
 const values = <T>(table: Record<number, T> | undefined): T[] =>
@@ -140,6 +148,51 @@ function collectPlugHashes(
     }
   }
   return hashes;
+}
+
+/**
+ * The plug carrying an exotic armor piece's trait — where its real effect text lives,
+ * since the armor item's own `perks` array is empty in the manifest.
+ *
+ * Derived from measurement against the live manifest (348 exotics), NOT from the shape
+ * one might assume: armor exposes **no "INTRINSIC TRAITS" category at all** (only
+ * ARMOR PERKS / ARMOR MODS / ARMOR COSMETICS). The trait sits in ARMOR PERKS at no fixed
+ * index, alongside generic Armor-3.0 stat plugs. Two independent discriminators separate
+ * them, and either alone is insufficient:
+ *   - the trait is referenced by `singleInitialItemHash`; the generic stat sockets come
+ *     from `randomizedPlugSetHash` (so plug sets are deliberately NOT followed here);
+ *   - the trait's plug references a sandbox perk, while generic mods do not — this is what
+ *     rejects e.g. "Special Ammo Finder" on legacy-shape items like Ophidian Aspect, whose
+ *     real trait ("Cobra Totemic") sits earlier in the category.
+ *
+ * Taking the LAST qualifying socket resolves 339/348 exotics with 339 sandbox perks and
+ * zero generic-mod false positives. The 9 misses are the Aeon Cult set, whose trait ships
+ * as a mod (`enhancements.exotic.aeon_cult`) rather than a perk socket.
+ */
+function exoticTraitPlug(
+  item: DestinyInventoryItemDefinition,
+  slice: ManifestSlice,
+  classifier: Classifier,
+): DestinyInventoryItemDefinition | undefined {
+  const sockets = item.sockets;
+  if (!sockets) return undefined;
+  const items = slice.DestinyInventoryItemDefinition;
+
+  let found: DestinyInventoryItemDefinition | undefined;
+  for (const category of sockets.socketCategories ?? []) {
+    if (classifier.socketCategoryName(category.socketCategoryHash) !== "ARMOR PERKS") {
+      continue;
+    }
+    for (const index of category.socketIndexes) {
+      const plugHash = sockets.socketEntries[index]?.singleInitialItemHash;
+      if (!plugHash) continue;
+      const plug = items[plugHash];
+      if (!plug?.displayProperties?.name) continue;
+      if (plug.perks?.[0]?.perkHash === undefined) continue;
+      found = plug;
+    }
+  }
+  return found;
 }
 
 function transformSubclasses(
@@ -238,7 +291,7 @@ function transformWeapons(
   slice: ManifestSlice,
   c: Classifier,
   tag: Tagger,
-): Weapon[] {
+): { weapons: Weapon[]; plugTags: Record<Hash, KeywordTags> } {
   const items = slice.DestinyInventoryItemDefinition;
   const plugSets = slice.DestinyPlugSetDefinition;
   const perks = slice.DestinySandboxPerkDefinition as Record<
@@ -246,6 +299,7 @@ function transformWeapons(
     DestinySandboxPerkDefinition
   >;
   const out: Weapon[] = [];
+  const plugItems = new Map<Hash, DestinyInventoryItemDefinition | undefined>();
 
   for (const item of values(items)) {
     if (!c.isWeapon(item)) continue;
@@ -278,6 +332,7 @@ function transformWeapons(
           const plugName = name(items[plug.plugItemHash]);
           if (!plugName || plugName.toLowerCase() === "empty") continue;
           seen.add(plug.plugItemHash);
+          plugItems.set(plug.plugItemHash, items[plug.plugItemHash]);
           plugs.push({ hash: plug.plugItemHash, name: plugName });
         }
         if (plugs.length) perkColumns.push({ socketIndex: index, plugs });
@@ -305,7 +360,18 @@ function transformWeapons(
       tags: tag({ text: itemText(item, perks), element: damageType }),
     });
   }
-  return out;
+
+  const plugTags: Record<Hash, KeywordTags> = {};
+  for (const [hash, plugItem] of plugItems) {
+    const tags = tag({ text: itemText(plugItem, perks) });
+    const hasAny =
+      tags.produces.length > 0 ||
+      tags.consumes.length > 0 ||
+      tags.triggers.length > 0 ||
+      (tags.championStuns?.length ?? 0) > 0;
+    if (hasAny) plugTags[hash] = tags;
+  }
+  return { weapons: out, plugTags };
 }
 
 function transformArmor(
@@ -339,6 +405,15 @@ function transformArmor(
       }
     }
 
+    // The exotic's real effect lives behind an ARMOR PERKS socket, not the item itself:
+    // armor's own `perks` array is empty in the manifest (which is why the original
+    // `item.perks?.[0]?.perkHash` read yielded nothing for all 348 exotics). Tags are the
+    // UNION of the item's own text and the trait plug's.
+    const trait = tier === "exotic" ? exoticTraitPlug(item, slice, c) : undefined;
+    const text = [itemText(item, perks), itemText(trait, perks)]
+      .filter((part) => part.length > 0)
+      .join("\n");
+
     out.push({
       kind: "armor",
       hash: item.hash,
@@ -350,8 +425,8 @@ function transformArmor(
       statGroupHash: item.stats?.statGroupHash,
       modSocketHashes,
       setHash: item.equippingBlock?.equipableItemSetHash,
-      exoticPerkHash: tier === "exotic" ? item.perks?.[0]?.perkHash : undefined,
-      tags: tag({ text: itemText(item, perks) }),
+      exoticPerkHash: trait?.perks?.[0]?.perkHash,
+      tags: tag({ text }),
     });
   }
   return out;
@@ -372,12 +447,19 @@ function transformMods(
     if (c.plugKind(item) !== "mod") continue;
     const modName = name(item);
     if (!modName) continue;
+    // The `?? ""` is unreachable in practice — `plugKind(item) === "mod"` already requires a
+    // non-empty identifier with an "enhancements" prefix — but `Mod.plugCategory` is a
+    // non-optional string, so this keeps the type honest without an assertion. Verified:
+    // 512/512 emitted mods carry a non-empty category (asserted in dataset.contract.test.ts).
+    const plugCategory = item.plug?.plugCategoryIdentifier ?? "";
     out.push({
       kind: "mod",
       hash: item.hash,
       name: modName,
       icon: icon(item),
       energyCost: item.plug?.energyCost?.energyCost ?? 0,
+      plugCategory,
+      slotRestriction: modSlotFromPlugCategory(plugCategory),
       tags: tag({ text: itemText(item, perks) }),
     });
   }
@@ -538,16 +620,18 @@ export function transformAll(
   classifier: Classifier,
   tag: Tagger,
 ): TransformResult {
+  const { weapons, plugTags } = transformWeapons(slice, classifier, tag);
   return {
     subclasses: transformSubclasses(slice, classifier),
     aspects: transformAspects(slice, classifier, tag),
     fragments: transformFragments(slice, classifier, tag),
-    weapons: transformWeapons(slice, classifier, tag),
+    weapons,
     armor: transformArmor(slice, classifier, tag),
     armorSets: transformArmorSets(slice, tag),
     mods: transformMods(slice, classifier, tag),
     artifacts: transformArtifacts(slice, classifier, tag),
     perks: transformPerks(slice, tag),
     stats: transformStats(slice),
+    plugTags,
   };
 }

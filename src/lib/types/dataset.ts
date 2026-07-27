@@ -8,6 +8,7 @@ import type {
   GuardianClass,
   Hash,
   Keyword,
+  KeywordTags,
   Stat,
   WeaponSlot,
 } from "./common";
@@ -70,5 +71,7 @@ export interface DerivedDataset {
   artifacts: Artifact[];
   perks: Perk[];
   stats: Stat[];
+  /** Weapon plug hash → keyword tags (side table; see `TransformResult`). */
+  plugTags: Record<Hash, KeywordTags>;
   indexes: Indexes;
 }

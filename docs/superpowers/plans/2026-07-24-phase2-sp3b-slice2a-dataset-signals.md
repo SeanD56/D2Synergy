@@ -1168,8 +1168,8 @@ ships as an empty placeholder here; the re-ingest task fills it."
 **This task decides whether the slice continues.** Everything before it was written against documented shapes; this fetches the manifest once and replaces every assumption with a count. No `data/` files are regenerated here.
 
 **Files:**
-- Create: `<scratchpad>/inspect-manifest.ts` (scratchpad only — NOT committed)
-- Create: `<scratchpad>/inspection-report.md` (the raw measurements)
+- Create: `scripts/inspect-slice2a.ts` — written **inside the repo** so its relative imports (`./ingest/classify`) and the project tsconfig resolve, then **deleted before this task's commit**. It must never appear in a commit; verify with `git status --short` before committing.
+- Create: `<scratchpad>/inspection-report.md` (the raw measurements — the script writes here, outside the repo)
 - Modify: `scripts/ingest/mod-slots.ts` (reconcile `PROBES` against measured identifiers, if needed)
 - Modify: `scripts/ingest/keywords.ts` (widen `CHAMPION_VOCABULARY`, if measurement shows misses)
 - Modify: `tests/ingest/mod-slots.test.ts` and/or `tests/ingest/keywords-champions.test.ts` (real identifiers/phrases as cases)
@@ -1181,7 +1181,7 @@ ships as an empty placeholder here; the re-ingest task fills it."
 
 - [ ] **Step 1: Write the inspection script**
 
-Write to the session scratchpad directory (not the repo). It reuses the real pipeline so what it measures is what Task 6 will emit.
+Write it to `scripts/inspect-slice2a.ts` (in the repo, so relative imports resolve — it gets deleted before this task's commit). It reuses the real pipeline, so what it measures is what Task 6 will emit. Imports are one level up from `scripts/ingest/`, i.e. `./ingest/classify`. Set `REPORT_PATH` to the absolute scratchpad path given in your dispatch, so the report lands outside the repo.
 
 ```ts
 /**
@@ -1191,11 +1191,14 @@ Write to the session scratchpad directory (not the repo). It reuses the real pip
  */
 import { writeFile } from "node:fs/promises";
 
-import { createClassifier } from "../../scripts/ingest/classify";
-import { createKeywordTagger } from "../../scripts/ingest/keywords";
-import { fetchManifest } from "../../scripts/ingest/fetchManifest";
-import { modSlotFromPlugCategory } from "../../scripts/ingest/mod-slots";
-import { transformAll } from "../../scripts/ingest/transform";
+import { createClassifier } from "./ingest/classify";
+import { createKeywordTagger } from "./ingest/keywords";
+import { fetchManifest } from "./ingest/fetchManifest";
+import { modSlotFromPlugCategory } from "./ingest/mod-slots";
+import { transformAll } from "./ingest/transform";
+
+/** Absolute scratchpad path supplied in the dispatch — keeps the report out of the repo. */
+const REPORT_PATH = "<scratchpad>/inspection-report.md";
 
 const apiKey = process.env.BUNGIE_API_KEY;
 if (!apiKey) throw new Error("BUNGIE_API_KEY missing");
@@ -1255,18 +1258,20 @@ const lines = [
   `- tier slot shapes: ${JSON.stringify(result.artifacts.map((a) => a.tiers.map((t) => t.slots)))}`,
 ];
 
-await writeFile("inspection-report.md", `${lines.join("\n")}\n`);
+await writeFile(REPORT_PATH, `${lines.join("\n")}\n`);
 console.log(lines.join("\n"));
 ```
 
 - [ ] **Step 2: Check memory headroom, then run it once**
 
+`BUNGIE_API_KEY` lives in `.env`, which **only the `pnpm ingest` script loads** (via `tsx --env-file-if-exists=.env`). A bare `npx tsx` run sees no key and throws immediately — pass the flag yourself:
+
 ```bash
 free -h
-NODE_OPTIONS="--max-old-space-size=2048" npx tsx <scratchpad>/inspect-manifest.ts
+NODE_OPTIONS="--max-old-space-size=2048" npx tsx --env-file-if-exists=.env scripts/inspect-slice2a.ts
 ```
 
-Expected: `inspection-report.md` written, and the same report on stdout. If the process is OOM-killed (exit 137), re-run with `--max-old-space-size=3072`; do not add a second fetch in the same process.
+Expected: the report written to the scratchpad path, and the same content on stdout. If the process is OOM-killed (exit 137), re-run with `--max-old-space-size=3072`; do not add a second fetch in the same process.
 
 - [ ] **Step 3: Evaluate the stop condition**
 
@@ -1287,7 +1292,12 @@ If the champion counts look implausibly low, or the `overload` count looks infla
 
 In the spec's Test plan section, replace each "≥ floor" with the concrete number chosen in Steps 3-5, and add a short "Measured (manifest `<version>`)" block with the report's headline counts: exotic coverage, mods with `slotRestriction`, distinct tagged plugs, champion entities, artifact count and tier shapes.
 
-- [ ] **Step 7: Run the verification trio and commit**
+- [ ] **Step 7: Delete the script, run the verification trio, and commit**
+
+```bash
+rm scripts/inspect-slice2a.ts
+git status --short   # must show NO scripts/inspect-slice2a.ts
+```
 
 Run: `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Expected: all pass (the reconciled mapping/vocabulary tests included).

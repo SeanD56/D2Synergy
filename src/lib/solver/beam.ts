@@ -46,8 +46,8 @@ export interface SolverEnv {
   weaponPool: Map<WeaponSlot, LegalWeapon[]>;
   /** Precomputed loose reachable-union per open slot (for the open-slot bound). */
   weaponReach: Map<WeaponSlot, BuildElement[]>;
-  /** Name-bridge resolver for weapon plug tags (empty tags if unmatched). */
-  resolvePlugTags: (name: string) => KeywordTags;
+  /** Plug → tags resolver: side table by hash, then the name bridge, then empty. */
+  resolvePlugTags: (plug: { hash: Hash; name: string }) => KeywordTags;
 }
 
 /** A partial build in the beam. `candidates` are its legal add-one-element moves. */
@@ -115,7 +115,8 @@ export function buildSolverEnv(
     weaponReach.set(sel.slot, deriveWeaponSlotReach(ctx, pool));
   }
 
-  const resolvePlugTags = (name: string) => ctx.lookup.perkByName(name)?.tags ?? EMPTY_TAGS;
+  const resolvePlugTags = (plug: { hash: Hash; name: string }) =>
+    ctx.lookup.plugTags(plug.hash) ?? ctx.lookup.perkByName(plug.name)?.tags ?? EMPTY_TAGS;
 
   return {
     ctx,

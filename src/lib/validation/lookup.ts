@@ -1,4 +1,4 @@
-import type { ArtifactPerk, DerivedDataset, Hash } from "@/lib/types";
+import type { ArtifactPerk, DerivedDataset, Hash, KeywordTags } from "@/lib/types";
 
 import type { Lookup } from "./types";
 
@@ -28,8 +28,14 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     }
   }
 
-  const nonEmptyTags = (p: { tags: { produces: string[]; consumes: string[]; triggers: string[] } }) =>
-    p.tags.produces.length > 0 || p.tags.consumes.length > 0 || p.tags.triggers.length > 0;
+  // Must agree with the transform's `hasAny` side-table filter, championStuns included —
+  // otherwise a perk whose ONLY signal is a champion stun reads as untagged here and can
+  // lose the name-bridge slot to an untagged homonym.
+  const nonEmptyTags = (p: { tags: KeywordTags }) =>
+    p.tags.produces.length > 0 ||
+    p.tags.consumes.length > 0 ||
+    p.tags.triggers.length > 0 ||
+    (p.tags.championStuns?.length ?? 0) > 0;
   const perksByName = new Map<string, (typeof dataset.perks)[number]>();
   for (const p of dataset.perks) {
     const key = p.name.toLowerCase();
@@ -48,6 +54,7 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     artifact: (hash) => artifacts.get(hash),
     perk: (hash) => perks.get(hash),
     perkByName: (name) => perksByName.get(name.toLowerCase()),
+    plugTags: (hash) => dataset.plugTags?.[hash],
     mod: (hash) => mods.get(hash),
     artifactPerk: (hash) => artifactPerks.get(hash),
   };

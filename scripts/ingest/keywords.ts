@@ -8,7 +8,7 @@
  * keyword logic.
  */
 
-import type { Element, KeywordTags } from "../../src/lib/types";
+import type { ChampionStun, Element, KeywordTags } from "../../src/lib/types";
 
 /** Text + element context handed to a tagger for one entity. */
 export interface TagInput {
@@ -74,6 +74,18 @@ export const TRIGGER_VOCABULARY: Record<string, string[]> = {
   pickup_orb: ["orb of power", "orbs of power"],
 };
 
+/**
+ * Champion-stun vocabulary. Deliberately narrow: these phrases feed
+ * `championStuns` ONLY and are never routed through the producer/consumer cue
+ * logic. Phrase coverage is measured against the live manifest during ingest
+ * (see the slice-2a spec, Execution order step 2) — widen it there, with counts.
+ */
+export const CHAMPION_VOCABULARY: Record<ChampionStun, string[]> = {
+  barrier: ["anti-barrier", "barrier champion", "pierce the shields"],
+  overload: ["overload"],
+  unstoppable: ["unstoppable"],
+};
+
 /** Sentence cues that a keyword is being *produced* (applied/created/granted). */
 const PRODUCER_CUE =
   /\b(make|makes|making|cause|causes|causing|appl(?:y|ies|ying)|create|creates|creating|grant|grants|granting|gain|gains|become|becomes|becoming|emit|emits|generat|unleash|inflict|inflicts)\b/;
@@ -81,6 +93,23 @@ const PRODUCER_CUE =
 /** Sentence cues that a keyword is being *consumed* (relied upon / spent). */
 const CONSUMER_CUE =
   /\b(while|whilst|when|with|consume|consumes|consuming|against|benefit|benefits|empowered|already|spend|spends)\b/;
+
+/**
+ * Vocabulary keys whose phrases appear in `sentence`.
+ *
+ * Generic in the key type so each vocabulary keeps its own: scanning
+ * `CHAMPION_VOCABULARY` yields `ChampionStun[]`, not `string[]`, which is what lets the
+ * champion loop drop the cast it used to need. `Object.keys` is sound here because the
+ * parameter is an exact `Record<K, string[]>`.
+ */
+function matchedKeys<K extends string>(
+  sentence: string,
+  vocabulary: Record<K, string[]>,
+): K[] {
+  return (Object.keys(vocabulary) as K[]).filter((key) =>
+    vocabulary[key].some((phrase) => sentence.includes(phrase)),
+  );
+}
 
 /**
  * Build a keyword tagger that scans descriptive text against the seed
@@ -93,21 +122,21 @@ export function createKeywordTagger(): Tagger {
     const produces = new Set<string>();
     const consumes = new Set<string>();
     const triggers = new Set<string>();
+    const championStuns = new Set<ChampionStun>();
 
     for (const sentence of text.toLowerCase().split(/[.\n;]+/)) {
       const isProducer = PRODUCER_CUE.test(sentence);
       const isConsumer = CONSUMER_CUE.test(sentence);
 
-      for (const [keyword, phrases] of Object.entries(KEYWORD_VOCABULARY)) {
-        if (!phrases.some((phrase) => sentence.includes(phrase))) continue;
+      for (const keyword of matchedKeys(sentence, KEYWORD_VOCABULARY)) {
         // Ambiguous phrasing defaults to "produces" — descriptions usually
         // describe an effect being applied, not merely relied upon.
         if (isProducer || !isConsumer) produces.add(keyword);
         if (isConsumer) consumes.add(keyword);
       }
-      for (const [trigger, phrases] of Object.entries(TRIGGER_VOCABULARY)) {
-        if (phrases.some((phrase) => sentence.includes(phrase))) triggers.add(trigger);
-      }
+      for (const trigger of matchedKeys(sentence, TRIGGER_VOCABULARY)) triggers.add(trigger);
+      // Champion phrases feed championStuns ONLY — never the producer/consumer cue logic above.
+      for (const stun of matchedKeys(sentence, CHAMPION_VOCABULARY)) championStuns.add(stun);
     }
 
     return {
@@ -115,6 +144,7 @@ export function createKeywordTagger(): Tagger {
       consumes: [...consumes],
       triggers: [...triggers],
       element,
+      ...(championStuns.size > 0 ? { championStuns: [...championStuns] } : {}),
     };
   };
 }

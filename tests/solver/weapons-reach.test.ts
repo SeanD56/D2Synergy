@@ -16,7 +16,7 @@ function weapon(hash: number, name: string, plugNames: string[]): Weapon {
   return {
     kind: "weapon", hash, name, icon: "", slot: "kinetic",
     damageType: "kinetic", ammoType: "primary",
-    perkColumns: [{ socketIndex: 0, plugs: plugNames.map((n, i) => ({ hash: 1000 + i, name: n })) }],
+    perkColumns: [{ socketIndex: 0, plugs: plugNames.map((n, i) => ({ hash: hash * 100 + i, name: n })) }],
     tags: { produces: [], consumes: [], triggers: [], element: "kinetic" },
   };
 }
