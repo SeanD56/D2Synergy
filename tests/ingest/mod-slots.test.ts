@@ -21,6 +21,31 @@ describe("modSlotFromPlugCategory", () => {
     expect(modSlotFromPlugCategory("enhancements.artifice")).toBe("artifice");
   });
 
+  // Real identifiers observed on the live manifest (see the slice-2a spec's measured block).
+  // The legacy pre-"v2_" family was unmapped until the Task-5 inspection surfaced it.
+  it("maps legacy pre-v2 slot identifiers", () => {
+    expect(modSlotFromPlugCategory("enhancements.head")).toBe("helmet");
+    expect(modSlotFromPlugCategory("enhancements.arms")).toBe("arms");
+    expect(modSlotFromPlugCategory("enhancements.chest")).toBe("chest");
+    expect(modSlotFromPlugCategory("enhancements.legs")).toBe("legs");
+    expect(modSlotFromPlugCategory("enhancements.class")).toBe("class");
+  });
+
+  it("maps the artifice exotic variant", () => {
+    expect(modSlotFromPlugCategory("enhancements.artifice.exotic")).toBe("artifice");
+  });
+
+  it("leaves activity- and season-scoped families unmapped", () => {
+    // These are not armour-slot restrictions; `undefined` is the correct answer.
+    for (const id of [
+      "enhancements.raid_v800", "enhancements.season_maverick", "enhancements.ghosts_economic",
+      "enhancements.universal", "enhancements.activity", "enhancements.rivens_curse",
+      "enhancements.exotic.aeon_cult", "enhancements.raid_garden",
+    ]) {
+      expect(modSlotFromPlugCategory(id), id).toBeUndefined();
+    }
+  });
+
   it("is case-insensitive", () => {
     expect(modSlotFromPlugCategory("Enhancements.V2_Head")).toBe("helmet");
   });

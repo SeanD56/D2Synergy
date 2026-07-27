@@ -151,15 +151,25 @@ function collectPlugHashes(
 }
 
 /**
- * The plug item socketed in an item's INTRINSIC TRAITS socket, if any.
+ * The plug carrying an exotic armor piece's trait — where its real effect text lives,
+ * since the armor item's own `perks` array is empty in the manifest.
  *
- * For exotic armor this is where the actual exotic effect text lives: the armor
- * item's own `perks` array is empty in the manifest, so the intrinsic plug (and
- * the sandbox perk it references) is the only route to the effect description.
- * Prefers `singleInitialItemHash`, falling back to the first plug of a plug set
- * for items that express the intrinsic through a set instead.
+ * Derived from measurement against the live manifest (348 exotics), NOT from the shape
+ * one might assume: armor exposes **no "INTRINSIC TRAITS" category at all** (only
+ * ARMOR PERKS / ARMOR MODS / ARMOR COSMETICS). The trait sits in ARMOR PERKS at no fixed
+ * index, alongside generic Armor-3.0 stat plugs. Two independent discriminators separate
+ * them, and either alone is insufficient:
+ *   - the trait is referenced by `singleInitialItemHash`; the generic stat sockets come
+ *     from `randomizedPlugSetHash` (so plug sets are deliberately NOT followed here);
+ *   - the trait's plug references a sandbox perk, while generic mods do not — this is what
+ *     rejects e.g. "Special Ammo Finder" on legacy-shape items like Ophidian Aspect, whose
+ *     real trait ("Cobra Totemic") sits earlier in the category.
+ *
+ * Taking the LAST qualifying socket resolves 339/348 exotics with 339 sandbox perks and
+ * zero generic-mod false positives. The 9 misses are the Aeon Cult set, whose trait ships
+ * as a mod (`enhancements.exotic.aeon_cult`) rather than a perk socket.
  */
-function intrinsicPlugItem(
+function exoticTraitPlug(
   item: DestinyInventoryItemDefinition,
   slice: ManifestSlice,
   classifier: Classifier,
@@ -167,24 +177,22 @@ function intrinsicPlugItem(
   const sockets = item.sockets;
   if (!sockets) return undefined;
   const items = slice.DestinyInventoryItemDefinition;
-  const plugSets = slice.DestinyPlugSetDefinition;
 
+  let found: DestinyInventoryItemDefinition | undefined;
   for (const category of sockets.socketCategories ?? []) {
-    if (classifier.socketCategoryName(category.socketCategoryHash) !== "INTRINSIC TRAITS") {
+    if (classifier.socketCategoryName(category.socketCategoryHash) !== "ARMOR PERKS") {
       continue;
     }
     for (const index of category.socketIndexes) {
-      const entry = sockets.socketEntries[index];
-      if (!entry) continue;
-      if (entry.singleInitialItemHash) return items[entry.singleInitialItemHash];
-      const plugSetHash = entry.reusablePlugSetHash ?? entry.randomizedPlugSetHash;
-      const first = plugSetHash === undefined
-        ? undefined
-        : plugSets[plugSetHash]?.reusablePlugItems?.[0]?.plugItemHash;
-      if (first) return items[first];
+      const plugHash = sockets.socketEntries[index]?.singleInitialItemHash;
+      if (!plugHash) continue;
+      const plug = items[plugHash];
+      if (!plug?.displayProperties?.name) continue;
+      if (plug.perks?.[0]?.perkHash === undefined) continue;
+      found = plug;
     }
   }
-  return undefined;
+  return found;
 }
 
 function transformSubclasses(
@@ -397,12 +405,12 @@ function transformArmor(
       }
     }
 
-    // The exotic's real effect lives behind its INTRINSIC TRAITS socket; the
-    // armor item's own `perks` array is empty in the manifest (which is why the
-    // previous `item.perks?.[0]?.perkHash` read yielded nothing for all 348
-    // exotics). Tags are the UNION of the item's own text and the intrinsic's.
-    const intrinsic = tier === "exotic" ? intrinsicPlugItem(item, slice, c) : undefined;
-    const text = [itemText(item, perks), itemText(intrinsic, perks)]
+    // The exotic's real effect lives behind an ARMOR PERKS socket, not the item itself:
+    // armor's own `perks` array is empty in the manifest (which is why the original
+    // `item.perks?.[0]?.perkHash` read yielded nothing for all 348 exotics). Tags are the
+    // UNION of the item's own text and the trait plug's.
+    const trait = tier === "exotic" ? exoticTraitPlug(item, slice, c) : undefined;
+    const text = [itemText(item, perks), itemText(trait, perks)]
       .filter((part) => part.length > 0)
       .join("\n");
 
@@ -417,7 +425,7 @@ function transformArmor(
       statGroupHash: item.stats?.statGroupHash,
       modSocketHashes,
       setHash: item.equippingBlock?.equipableItemSetHash,
-      exoticPerkHash: intrinsic?.perks?.[0]?.perkHash,
+      exoticPerkHash: trait?.perks?.[0]?.perkHash,
       tags: tag({ text }),
     });
   }

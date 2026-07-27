@@ -12,14 +12,22 @@ import type { ManifestSlice } from "../../scripts/ingest/fetchManifest";
 export const H = {
   armorCategory: 20,
   helmetBucket: 3448274439,
-  intrinsicSocketCategory: 5001,
+  armorPerksSocketCategory: 5001,
   armorModsSocketCategory: 5002,
   exoticHelmet: 1001,
-  intrinsicPlug: 1002,
-  intrinsicSandboxPerk: 1003,
+  traitPlug: 1002,
+  traitSandboxPerk: 1003,
   legendaryHelmet: 1004,
   modItem: 1005,
   modSocketType: 5003,
+  // Decoys that live in ARMOR PERKS alongside the real trait, mirroring measured
+  // manifest shape. Each isolates one discriminator in `exoticTraitPlug`.
+  genericStatPlug: 1006,
+  genericStatPlugSet: 7001,
+  namelessPlug: 1007,
+  genericModPlug: 1008,
+  /** Sandbox perk the decoys reference, so `exoticPerkHash` discriminates as well as tags. */
+  decoySandboxPerk: 1009,
 } as const;
 
 interface SliceParts {
@@ -28,9 +36,24 @@ interface SliceParts {
 }
 
 /**
- * An exotic helmet whose INTRINSIC TRAITS socket points at `intrinsicPlug`.
- * `perks` is deliberately EMPTY on the armor item — that is the real manifest
- * shape, and the reason `exoticPerkHash` was never populated before slice 2a.
+ * An exotic helmet shaped like REAL measured manifest data (see the `exoticTraitPlug`
+ * docstring in scripts/ingest/transform.ts): there is **no "INTRINSIC TRAITS" category**
+ * on armor. The trait lives in ARMOR PERKS among generic Armor-3.0 plugs, and only the
+ * combination of `singleInitialItemHash` + a display name + a sandbox perk isolates it.
+ *
+ * Socket layout deliberately puts the trait FIRST and the decoys AFTER it, mirroring the
+ * legacy-shape exotic (Ophidian Aspect) that broke the naive rule. Because selection takes
+ * the LAST qualifying socket, any decoy that wrongly qualifies would OUTRANK the real trait —
+ * so dropping any single discriminator makes these tests fail. (With the trait placed last
+ * the tests pass vacuously even with every check removed — verified by mutation.)
+ *   [0] ARMOR PERKS via singleInitialItemHash  -> the trait   (named + perks[]) <= wanted
+ *   [1] ARMOR PERKS via singleInitialItemHash  -> generic mod (named, but NO perks[])
+ *   [2] ARMOR PERKS via randomizedPlugSetHash  -> stat plug   (qualifies, but behind a set)
+ *   [3] ARMOR PERKS via singleInitialItemHash  -> nameless    (qualifies, but has no name)
+ *   [4] ARMOR MODS                             -> mod socket layout
+ *
+ * `perks` is deliberately EMPTY on the armor item — the real manifest shape, and the
+ * reason `exoticPerkHash` was never populated before slice 2a.
  */
 export const exoticHelmetItem = {
   hash: H.exoticHelmet,
@@ -42,25 +65,48 @@ export const exoticHelmetItem = {
   perks: [],
   sockets: {
     socketCategories: [
-      { socketCategoryHash: H.intrinsicSocketCategory, socketIndexes: [0] },
-      { socketCategoryHash: H.armorModsSocketCategory, socketIndexes: [1] },
+      { socketCategoryHash: H.armorPerksSocketCategory, socketIndexes: [0, 1, 2, 3] },
+      { socketCategoryHash: H.armorModsSocketCategory, socketIndexes: [4] },
     ],
     socketEntries: [
-      { singleInitialItemHash: H.intrinsicPlug },
+      { singleInitialItemHash: H.traitPlug },
+      { singleInitialItemHash: H.genericModPlug },
+      { randomizedPlugSetHash: H.genericStatPlugSet },
+      { singleInitialItemHash: H.namelessPlug },
       { socketTypeHash: H.modSocketType },
     ],
   },
 };
 
+/** The exotic's trait plug: named AND referencing a sandbox perk. The one we want. */
+export const exoticTraitPlugDef = {
+  hash: H.traitPlug,
+  displayProperties: { name: "Test Trait", description: "" },
+  perks: [{ perkHash: H.traitSandboxPerk }],
+};
+
 /**
- * The exotic's intrinsic plug: this is where the real effect text lives.
- * (Named `exoticIntrinsicPlug`, not `intrinsicPlugItem`, to avoid colliding with
- * the transform helper of that name added in Task 3.)
+ * Decoys. Each carries tag-worthy text ("volatile") that must NOT reach the exotic's tags —
+ * so if a discriminator regresses, the assertion fails loudly instead of merely under-tagging.
  */
-export const exoticIntrinsicPlug = {
-  hash: H.intrinsicPlug,
-  displayProperties: { name: "Test Intrinsic", description: "" },
-  perks: [{ perkHash: H.intrinsicSandboxPerk }],
+export const genericStatPlug = {
+  hash: H.genericStatPlug,
+  displayProperties: { name: "Paragon", description: "Makes targets volatile." },
+  perks: [{ perkHash: H.decoySandboxPerk }],
+};
+
+/** Named nothing: real ARMOR PERKS sockets frequently hold empty-named placeholder plugs. */
+export const namelessPlug = {
+  hash: H.namelessPlug,
+  displayProperties: { name: "", description: "Makes targets volatile." },
+  perks: [{ perkHash: H.decoySandboxPerk }],
+};
+
+/** Named but perk-less — the "Special Ammo Finder" shape that broke the naive rule. */
+export const genericModPlug = {
+  hash: H.genericModPlug,
+  displayProperties: { name: "Special Ammo Finder", description: "Makes targets volatile." },
+  perks: [],
 };
 
 /** A legendary helmet with no intrinsic socket, to prove non-exotics are untouched. */
@@ -88,12 +134,17 @@ export function makeSlice(parts: SliceParts = {}): ManifestSlice {
   return {
     DestinyInventoryItemDefinition: parts.items ?? {},
     DestinySandboxPerkDefinition: parts.sandboxPerks ?? {},
-    DestinyPlugSetDefinition: {},
+    DestinyPlugSetDefinition: {
+      [H.genericStatPlugSet]: {
+        hash: H.genericStatPlugSet,
+        reusablePlugItems: [{ plugItemHash: H.genericStatPlug, currentlyCanRoll: true }],
+      },
+    },
     DestinySocketTypeDefinition: {},
     DestinySocketCategoryDefinition: {
-      [H.intrinsicSocketCategory]: {
-        hash: H.intrinsicSocketCategory,
-        displayProperties: { name: "Intrinsic Traits" },
+      [H.armorPerksSocketCategory]: {
+        hash: H.armorPerksSocketCategory,
+        displayProperties: { name: "Armor Perks" },
       },
       [H.armorModsSocketCategory]: {
         hash: H.armorModsSocketCategory,
