@@ -82,10 +82,22 @@ Two alternatives were considered and rejected:
 New module `src/lib/solver/armor.ts`:
 
 ```ts
-/** Exotics legal for this class, deduped by name (lowest hash wins), hash-sorted. */
+/**
+ * Exotics legal for this class, deduped by name, hash-sorted.
+ *
+ * Dedup prefers the entry with the RICHEST tag set, tie-broken by lowest hash — the same
+ * "prefer tagged" rule `createLookup` uses for `perkByName`. Verified on the slice-2a
+ * dataset: 0 of 141 same-name groups currently disagree on tags, so blind lowest-hash
+ * would lose nothing *today* — but nothing enforces that, and a future re-ingest carrying
+ * a divergent duplicate (e.g. a sunset copy) would silently drop synergy. A contract test
+ * asserts duplicates agree so divergence fails loudly rather than degrading quietly.
+ *
+ * Untagged exotics stay in the pool on purpose: exactly one exotic is a game floor, and
+ * they become meaningful once SP4 fills the StatFit seam. Do not "optimize" them out.
+ */
 export function deriveExoticArmorPool(
   ctx: SolverContext,
-  classType: GuardianClass,
+  classType: Exclude<GuardianClass, "any">,
   pinnedHash?: Hash,
 ): Armor[]
 ```
@@ -96,8 +108,12 @@ state keys and results stay byte-identical:
 - `candidates.ts` — new `exoticArmor` candidate kind, offered only while `exoticHash` is undecided.
 - `beam.ts` — `SolverEnv.exoticPool` + `SolverEnv.exoticReach`; `SolverState.exoticHash?: Hash`;
   `stateKey(frag, perk, weapons, exoticHash?)`; terminal guard extended.
-- `types/build.ts` — `SubclassLoadout.classType?: GuardianClass`.
-- `validation/armor.ts` — complete the `classConsistency` class-match clause.
+- `types/build.ts` — `SubclassLoadout.classType?: Exclude<GuardianClass, "any">`. **Not bare
+  `GuardianClass`**: a subclass belongs to exactly one class, so `"any"` is meaningless there, and
+  because no exotic carries `classType: "any"` it would yield an empty pool and a silent
+  `feasible: false`. `validation/armor.ts` already uses this same `Exclude` for the same reason.
+- `validation/armor.ts` — complete the `classConsistency` class-match clause. It must **not** fire
+  when `classType` is absent, or every build predating this slice gains a violation.
 
 **No synergy-side change.** `collectBuildElements` already reads `build.armor.exoticHash`
 (`src/lib/synergy/elements.ts:51`), so a chosen exotic contributes to realized score with no
@@ -156,6 +172,20 @@ Two non-goals, stated so they are not mistaken for oversights: no bound tighteni
 dimension (loose by design; `beamWidth` is the cost governor, as in slice 1), and no `exoticReach`
 caching beyond the per-solve precompute.
 
+**How loose, measured, and why the plan must front-load this.** `exoticReach` contributes ~38 tagged
+elements to `addable` (warlock 38, titan 39, hunter 33 — spanning ~21 distinct `produces` and ~13
+`consumes`) where a real build contributes exactly **one** exotic. Since `synergyUpperBound` counts
+per-element occurrences, that is roughly a 38× over-credit on this dimension. Admissible, but slice
+2a's hard-won lesson is that inflated producer counts can blow the bound up 6× (11,190 → 66,071) and
+break the cost tripwire.
+
+Therefore the implementation plan **must measure real-data bound-call cost immediately after the beam
+wiring lands, not as a final task** — otherwise the remaining tasks get built on an unverified cost
+assumption, which is exactly how slice 2a shipped a 0/348 extraction. The response if the measured
+cost is unacceptable is **pre-decided, not to be redesigned under pressure**: require a `useExotic`
+pin (the fallback the user offered and we chose to leave unspent), which collapses the dimension to
+one candidate and removes the reach term entirely.
+
 **Dedup granularity — do not "simplify" this.** Slice 2a's load-bearing invariant is that
 `collectBuildElements` and `deriveWeaponSlotReach` key plug elements identically
 (`bridged?.hash ?? plugHash`). Exotic armor has no equivalent split — armor hashes *are* the synergy
@@ -179,7 +209,9 @@ Determinism: name-dedup keeps the **lowest hash** per name; the pool is hash-sor
 ## Test plan
 
 1. **Pool derivation** — class filter; dedup 116 → 47 on real data; hash-sorted; pin narrows to
-   one; wrong-class pin ⇒ empty; unknown hash ⇒ empty.
+   one; wrong-class pin ⇒ empty; unknown hash ⇒ empty; dedup prefers the richest tag set; and a
+   contract assertion that same-name exotics agree on tags (0 of 141 disagree today — this test is
+   what turns a future divergence into a loud failure instead of quietly dropped synergy).
 2. **Candidate generation** — offered only while undecided; never re-offered once chosen; **no
    `exoticArmor` candidates at all when `classType` is absent**.
 3. **Acceptance gate (the point of the slice).** An exotic producing a keyword consumed *only* by a
@@ -188,10 +220,11 @@ Determinism: name-dedup keeps the **lowest hash** per name; the pool is hash-sor
    zero-bound run must genuinely produce a different winner, not merely pass.
 4. **Byte-compatibility** — `stateKey` identical with the trailing param absent; the entire existing
    suite unchanged. The strongest regression guard available.
-5. **Cost.** The existing weapons tripwire must still measure **exactly 10,842** bound calls — that
-   is what proves this change is additive rather than merely non-breaking. The new exotic-dimension
-   test gets its **own** ceiling, set from measurement (expected order 16k–33k for a ≤47-branch
-   dimension, but the committed number comes from the measured run, not this estimate).
+5. **Cost — measured EARLY, not last (see the Bound section).** The existing weapons tripwire must
+   still measure **exactly 10,842** bound calls; that is what proves this change is additive rather
+   than merely non-breaking. The new exotic-dimension test gets its **own** ceiling, set from the
+   measured run — any number quoted before that run (including this spec's 16k–33k guess) is an
+   estimate and must not be committed as a ceiling.
 6. **Real-data integration** — class pinned ⇒ an exotic is chosen, is class-correct, carries tags,
    and scores ≥ the no-exotic baseline.
 7. **Validator** — the newly-unblocked `classConsistency` clause: armor class must match
