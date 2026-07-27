@@ -447,6 +447,10 @@ function transformMods(
     if (c.plugKind(item) !== "mod") continue;
     const modName = name(item);
     if (!modName) continue;
+    // The `?? ""` is unreachable in practice — `plugKind(item) === "mod"` already requires a
+    // non-empty identifier with an "enhancements" prefix — but `Mod.plugCategory` is a
+    // non-optional string, so this keeps the type honest without an assertion. Verified:
+    // 512/512 emitted mods carry a non-empty category (asserted in dataset.contract.test.ts).
     const plugCategory = item.plug?.plugCategoryIdentifier ?? "";
     out.push({
       kind: "mod",
