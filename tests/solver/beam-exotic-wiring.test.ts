@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { createLookup } from "@/lib/validation";
 import { synergyUpperBound } from "@/lib/synergy";
-import type { Armor, Artifact, Aspect, Build, DerivedDataset, Fragment } from "@/lib/types";
+import type { Armor, Artifact, Aspect, Build, DerivedDataset, Fragment, Weapon } from "@/lib/types";
 import { EMPTY_TAGS } from "@/lib/types";
 
 import { beamSearch, buildSolverEnv, expand, makeState, stateKey } from "@/lib/solver/beam";
@@ -254,5 +254,87 @@ describe("beam bound — exotic reach wiring", () => {
       synergyUpperBound,
     );
     expect(rootTagged.priority).toBeGreaterThan(rootUntagged.priority);
+  });
+});
+
+describe("expand() — exotic forwarding across the remaining three branches", () => {
+  // Task-4 re-review (Finding 1, remainder): the fragment-branch test above proved the
+  // instrument (direct expand() calls, exotic pre-decided so no exoticArmor candidate can
+  // mask a drop) but "artifactPerk", "weapon", and "weaponPerk" were still exercised only
+  // with `state.exoticHash === undefined` everywhere else in this file — never with a
+  // defined value. This fixture is rich enough to produce all three remaining move kinds
+  // (fragment is deliberately excluded here — already covered above) from ONE parent state:
+  //   - an artifact tier with slots > 0 and one placeable perk → "artifactPerk"
+  //   - a second open weapon slot ("energy") with no weapon picked yet → "weapon"
+  //   - the first open weapon slot ("kinetic") already carrying a picked weapon with an
+  //     unfilled column → "weaponPerk"
+  //   - the exotic already decided (passed directly to makeState) → no "exoticArmor"
+  //     candidate exists to re-supply a dropped exotic, exactly as in the fragment test.
+  const richArtifact: Artifact = {
+    kind: "artifact", hash: 900, name: "RichArt",
+    tiers: [{ tierIndex: 0, slots: 1, perks: [{ hash: 950, name: "Perk", tags: EMPTY_TAGS }] }],
+  };
+  const weaponKinetic: Weapon = {
+    kind: "weapon", hash: 500, name: "KineticGun", icon: "", slot: "kinetic",
+    damageType: "kinetic", ammoType: "primary",
+    perkColumns: [{ socketIndex: 0, plugs: [{ hash: 100, name: "Inert0" }, { hash: 200, name: "Volt" }] }],
+    tags: EMPTY_TAGS,
+  };
+  const weaponEnergy: Weapon = {
+    kind: "weapon", hash: 600, name: "EnergyGun", icon: "", slot: "energy",
+    damageType: "arc", ammoType: "special", perkColumns: [], tags: EMPTY_TAGS,
+  };
+
+  function richCtx(): SolverContext {
+    const pieces = [exo(10, "A"), exo(11, "B")];
+    const exoticToClassSlot: Record<number, { classType: string; slot: string }> = {};
+    for (const a of pieces) exoticToClassSlot[a.hash] = { classType: a.classType, slot: a.slot };
+    const ds = {
+      meta: { ingestedAt: "", manifestVersion: "", counts: {} },
+      subclasses: [], aspects: [aspect100], fragments: [],
+      weapons: [weaponKinetic, weaponEnergy], armor: pieces,
+      armorSets: [], mods: [], artifacts: [richArtifact], perks: [], stats: [], plugTags: {},
+      indexes: {
+        ...EMPTY_INDEXES, exoticToClassSlot,
+        slotToWeapons: { kinetic: [500], energy: [600] },
+      },
+    } as unknown as DerivedDataset;
+    return { lookup: createLookup(ds), indexes: ds.indexes };
+  }
+
+  function richBuild(): Build {
+    return {
+      subclass: { element: "arc", aspectHashes: [100], fragmentHashes: [], classType: "warlock" },
+      weapons: [
+        { slot: "kinetic", itemHash: undefined, perkConstraints: [] },
+        { slot: "energy", itemHash: undefined, perkConstraints: [] },
+      ],
+      armor: { pieces: [], setBonuses: [], statPriorities: [], modHashes: [], exoticHash: undefined },
+      artifact: { artifactHash: 900, selectedPerkHashes: [] },
+      constraints: [],
+    } as unknown as Build;
+  }
+
+  it("produces all three remaining candidate kinds, and expand() forwards the decided exotic on every one", () => {
+    const env = buildSolverEnv(richBuild(), richCtx(), {})!;
+    expect(env).toBeTruthy();
+    expect(env.exoticPool.length).toBe(2);
+
+    // Kinetic already picked (weapon 500, column still open); energy still unpicked;
+    // one artifact perk still placeable; exotic pre-decided as hash 10.
+    const parent = makeState(
+      env, [], [], synergyUpperBound,
+      [{ slot: "kinetic", itemHash: 500, plugHashes: [] }],
+      10,
+    );
+
+    const kinds = new Set(parent.candidates.map((c) => c.kind));
+    expect(kinds).toEqual(new Set(["artifactPerk", "weapon", "weaponPerk"]));
+
+    const children = expand(parent, env, synergyUpperBound);
+    // One child per candidate — confirms every one of the three branches actually ran
+    // (not just the first candidate kind encountered) rather than just checking length.
+    expect(children).toHaveLength(parent.candidates.length);
+    for (const child of children) expect(child.exoticHash).toBe(10);
   });
 });
