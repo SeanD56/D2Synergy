@@ -1,4 +1,4 @@
-import type { ArmorSlot, Build, GuardianClass } from "@/lib/types";
+import type { ArmorSlot, Build, GuardianClass, Hash } from "@/lib/types";
 
 import type { Rule, Violation } from "./types";
 
@@ -33,29 +33,50 @@ const exoticCount: Rule = (build, lookup) => {
 };
 
 /**
- * Flags armor pieces spanning multiple Guardian classes. The spec's second
- * clause (piece class must match the equipped subclass's class) is deferred:
- * SubclassLoadout carries no class/subclass hash and Lookup has no reverse
- * index to derive it. Revisit when the subclass model grows a class field.
+ * Flags armor spanning multiple Guardian classes, and (slice 2b) armor whose class
+ * contradicts the build's pinned `subclass.classType`.
+ *
+ * The second clause was deferred in Phase 1 purely because the build model carried no
+ * class; slice 2b adds `SubclassLoadout.classType`, so it is enabled here. It fires ONLY
+ * when a class is pinned — otherwise every build predating slice 2b would gain a violation.
+ *
+ * `armor.exoticHash` is checked alongside `pieces` because the solver records its chosen
+ * exotic there and never writes `pieces` (that is SP4's job).
  */
 const classConsistency: Rule = (build, lookup) => {
-  const pieces = specifiedPieces(build);
-  const classes = new Set(
-    pieces
-      .map((p) => lookup.armor(p.itemHash as number)?.classType)
-      .filter((c): c is Exclude<GuardianClass, "any"> => Boolean(c) && c !== "any"),
+  const classOf = (hash: Hash | undefined) =>
+    hash === undefined ? undefined : lookup.armor(hash)?.classType;
+
+  const observed = new Set(
+    [
+      ...specifiedPieces(build).map((p) => classOf(p.itemHash)),
+      classOf(build.armor.exoticHash),
+    ].filter((c): c is Exclude<GuardianClass, "any"> => Boolean(c) && c !== "any"),
   );
-  if (classes.size > 1) {
-    return [
-      {
+
+  const out: Violation[] = [];
+  if (observed.size > 1) {
+    out.push({
+      code: "ARMOR_CLASS_MISMATCH",
+      category: "game",
+      message: `Armor pieces span multiple classes: ${[...observed].join(", ")}.`,
+      subject: { kind: "armor" },
+    });
+  }
+
+  const pinned = build.subclass.classType;
+  if (pinned !== undefined) {
+    const wrong = [...observed].filter((c) => c !== pinned);
+    if (wrong.length > 0) {
+      out.push({
         code: "ARMOR_CLASS_MISMATCH",
         category: "game",
-        message: `Armor pieces span multiple classes: ${[...classes].join(", ")}.`,
+        message: `Armor class ${wrong.join(", ")} does not match the build's ${pinned} subclass.`,
         subject: { kind: "armor" },
-      },
-    ];
+      });
+    }
   }
-  return [];
+  return out;
 };
 
 const slotUniqueness: Rule = (build) => {

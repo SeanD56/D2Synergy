@@ -1,4 +1,4 @@
-import { expect, it } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import type { ArmorSlot, Build } from "@/lib/types";
 import type { Lookup } from "@/lib/validation/types";
@@ -68,4 +68,51 @@ it("flags a complete 5-piece set with no exotic", () => {
     legendary(13, "legs"), legendary(14, "class"),
   ] } };
   expect(run(b, lk)).toContain("MISSING_EXOTIC_ARMOR");
+});
+
+describe("classConsistency — build class match (slice 2b)", () => {
+  // A(hash, slot, tier, classType) is the existing helper defined above in this file.
+  // NOTE (deviation from brief): hash 901 is "legendary" here, not "exotic" as the brief's
+  // verbatim text specifies. With both 900 and 901 tier "exotic", the "still catches pieces
+  // spanning multiple classes" case below feeds both hashes into armor.pieces, and the
+  // pre-existing exoticCount rule (tier === "exotic") then also fires MULTIPLE_EXOTIC_ARMOR,
+  // breaking that test's exact-match assertion — contradicting the brief's own claim that
+  // "the other three armor rules stay silent" for these fixtures. tier plays no role in
+  // classConsistency (only classType does), so this one-word change preserves every
+  // behavior the brief's tests actually exercise while removing the incidental collision.
+  const lookup = {
+    armor: (h: number) =>
+      h === 900 ? A(900, "helmet", "exotic", "warlock")
+        : h === 901 ? A(901, "arms", "legendary", "titan")
+          : undefined,
+    armorSet: () => undefined,
+  } as Partial<Lookup>;
+
+  const withClass = (classType: string | undefined, armor: Record<string, unknown>): Build => ({
+    ...base,
+    subclass: { ...base.subclass, classType },
+    armor: { ...base.armor, ...armor },
+  }) as unknown as Build;
+
+  it("flags an exoticHash whose class contradicts the pinned build class", () => {
+    expect(run(withClass("warlock", { exoticHash: 901 }), lookup))
+      .toContain("ARMOR_CLASS_MISMATCH");
+  });
+
+  it("accepts an exoticHash matching the pinned build class", () => {
+    expect(run(withClass("warlock", { exoticHash: 900 }), lookup)).toEqual([]);
+  });
+
+  it("does NOT fire when classType is absent (every pre-slice-2b build stays valid)", () => {
+    expect(run(withClass(undefined, { exoticHash: 901 }), lookup)).toEqual([]);
+  });
+
+  it("still catches pieces spanning multiple classes with no class pinned", () => {
+    expect(run(
+      withClass(undefined, {
+        pieces: [{ slot: "helmet", itemHash: 900 }, { slot: "arms", itemHash: 901 }],
+      }),
+      lookup,
+    )).toEqual(["ARMOR_CLASS_MISMATCH"]);
+  });
 });

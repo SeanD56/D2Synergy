@@ -6,6 +6,7 @@
 
 import type {
   ArmorSlot,
+  GuardianClass,
   Hash,
   SubclassElement,
   WeaponSlot,
@@ -14,6 +15,14 @@ import type {
 /** Subclass configuration within a build. */
 export interface SubclassLoadout {
   element?: SubclassElement;
+  /**
+   * The build's Guardian class. Optional, and that is load-bearing: absent means the
+   * solver's exotic-armor dimension stays CLOSED, so every build predating slice 2b
+   * behaves byte-identically. `Exclude<..., "any">` because a subclass belongs to exactly
+   * one class — bare `GuardianClass` would admit `"any"`, which matches no exotic and
+   * would surface as a silent `feasible: false`.
+   */
+  classType?: Exclude<GuardianClass, "any">;
   superHash?: Hash;
   aspectHashes: Hash[];
   fragmentHashes: Hash[];
