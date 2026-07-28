@@ -1,4 +1,4 @@
-import type { Artifact, ArtifactPerk, Fragment, Hash, KeywordTags, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, Artifact, ArtifactPerk, Fragment, Hash, KeywordTags, SubclassElement, WeaponSlot } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
 import { canAddArtifactPerk } from "@/lib/validation";
@@ -42,7 +42,7 @@ export function deriveArtifactPerkPool(_ctx: SolverContext, artifact: Artifact):
 
 /** One legal move: add a fragment, artifact perk, weapon, or weapon plug to an open dimension. */
 export interface Candidate {
-  kind: "fragment" | "artifactPerk" | "weapon" | "weaponPerk";
+  kind: "fragment" | "artifactPerk" | "weapon" | "weaponPerk" | "exoticArmor";
   hash: Hash;
   /** Native (lowest) tier — present only for artifact perks (for canAdd). */
   nativeTier?: number;
@@ -72,6 +72,8 @@ interface CandidateEnv {
   weaponPool: Map<WeaponSlot, LegalWeapon[]>;
   /** Plug → tags resolver: side table by hash, then the name bridge, then empty. */
   resolvePlugTags: (plug: { hash: Hash; name: string }) => KeywordTags;
+  /** Class-filtered, name-deduped exotic pool. EMPTY ⇒ the exotic dimension is closed. */
+  exoticPool: Armor[];
 }
 
 /**
@@ -86,6 +88,7 @@ export function generateCandidates(
   perkHashes: Hash[],
   cap: Capacity,
   weaponPicks: WeaponPick[],
+  exoticHash?: Hash,
 ): Candidate[] {
   const chosenFrag = new Set(fragHashes);
   const chosenPerk = new Set(perkHashes);
@@ -104,6 +107,15 @@ export function generateCandidates(
     if (nativeTier === undefined) continue; // unplaceable (unknown) perk
     if (!canAddArtifactPerk(env.capModel, cap, nativeTier)) continue;
     out.push({ kind: "artifactPerk", hash: p.hash, nativeTier, element: { hash: p.hash, source: `artifact-perk:${p.name}`, tags: p.tags } });
+  }
+
+  // Exotic armor: a single-select dimension. Unlike weapons there is no second stage —
+  // an exotic's slot is fixed by the item, so choosing the item decides the slot.
+  if (exoticHash === undefined) {
+    for (const a of env.exoticPool) {
+      out.push({ kind: "exoticArmor", hash: a.hash,
+        element: { hash: a.hash, source: `armor:${a.name}`, tags: a.tags } });
+    }
   }
 
   const pickBySlot = new Map(weaponPicks.map((p) => [p.slot, p]));

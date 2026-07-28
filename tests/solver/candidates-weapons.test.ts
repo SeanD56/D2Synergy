@@ -49,6 +49,7 @@ function weaponEnv(ctx: SolverContext) {
     resolvePlugTags: (plug: { hash: number; name: string }) =>
       ctx.lookup.plugTags(plug.hash) ??
       ctx.lookup.perkByName(plug.name)?.tags ?? { produces: [], consumes: [], triggers: [] },
+    exoticPool: [],
   };
 }
 

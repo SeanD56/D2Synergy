@@ -1,4 +1,4 @@
-import type { ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
 import { EMPTY_TAGS } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
@@ -48,6 +48,8 @@ export interface SolverEnv {
   weaponReach: Map<WeaponSlot, BuildElement[]>;
   /** Plug → tags resolver: side table by hash, then the name bridge, then empty. */
   resolvePlugTags: (plug: { hash: Hash; name: string }) => KeywordTags;
+  /** Class-filtered, name-deduped exotic pool. EMPTY ⇒ the exotic dimension is closed. */
+  exoticPool: Armor[];
 }
 
 /** A partial build in the beam. `candidates` are its legal add-one-element moves. */
@@ -134,6 +136,10 @@ export function buildSolverEnv(
     weaponPool,
     weaponReach,
     resolvePlugTags,
+    // Placeholder: Task 4 replaces this with the real class-filtered, pinned-hash-aware
+    // exotic pool derived via deriveExoticArmorPool. Empty here keeps the exotic
+    // dimension closed, so this task's landing is byte-compatible with slice 1.
+    exoticPool: [],
   };
 }
 

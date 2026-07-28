@@ -41,6 +41,7 @@ const noWeaponEnv = {
   openWeaponSlots: [],
   weaponPool: new Map(),
   resolvePlugTags: () => ({ produces: [], consumes: [], triggers: [] }),
+  exoticPool: [],
 };
 const env = {
   fragmentPool: deriveFragmentPool(ctx, "solar" as SubclassElement),
