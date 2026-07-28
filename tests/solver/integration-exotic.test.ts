@@ -17,10 +17,25 @@ const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.jso
 // build contributes ONE exotic, so this is the tripwire for that looseness.
 const EXOTIC_BOUND_CALL_CEILING = 12_000;
 
-// OBSERVED: the exotic dimension costs 2.61x the same fixture with the dimension closed
-// (2,136 closed -> 5,567 open). A RATIO, not an absolute count, because the absolute
-// baseline moves with the dataset while this does not — so it still catches a reach-cost
-// regression after a season re-ingest that legitimately grows the exotic pool.
+// NOT drift-invariant — this ratio is PROPORTIONAL TO PER-CLASS EXOTIC POOL SIZE. Each
+// exotic-undecided state emits one `exoticArmor` candidate per env.exoticPool entry
+// (bound() fires once per candidate in expand(); beamWidth/topN prune only after a round
+// is fully expanded, so they don't dampen this), while the closed baseline never touches
+// exoticPool at all. Growing the pool legitimately (season re-ingest) grows this ratio too.
+//
+// Measured today: 2,136 closed -> 5,567 open = 2.61x, with a pool of 47 exotics/class.
+//
+// 3.5 was picked to catch the regression band the absolute ceiling above cannot see (an
+// open-side cost of 8,000-11,000 against the fixed 2,136 closed baseline lands at
+// 3.75-5.15, i.e. > 3.5) — NOT for drift headroom. As a side effect it tolerates roughly
+// 28% pool growth (47->60 =~ 3.34) and will trip somewhere before ~49% growth (47->70 =~ 3.9).
+//
+// HOW TO DIAGNOSE A FAILURE: first check the per-class exotic pool size (env.exoticPool /
+// deriveExoticArmorPool for this class) against the 47 measured here.
+//   - Pool grown materially -> legitimate drift. Re-measure both sides and re-pin this
+//     constant (and its "measured today" figure above) to the new numbers.
+//   - Pool unchanged but the ratio rose -> a real reach-cost regression. Do not just widen
+//     this constant.
 const MAX_EXOTIC_MARGINAL_FACTOR = 3.5;
 
 describe.runIf(hasDataset)("solve — exotic armor dimension (real data)", () => {
@@ -64,7 +79,7 @@ describe.runIf(hasDataset)("solve — exotic armor dimension (real data)", () =>
     expect(calls).toBeLessThan(EXOTIC_BOUND_CALL_CEILING);
   });
 
-  it("keeps the open/closed marginal bound-call factor under the drift-invariant ceiling", () => {
+  it("keeps the open/closed marginal bound-call factor under the pool-size-sensitive ceiling", () => {
     const countBoundCalls = (build: Build) => {
       let calls = 0;
       const counting = (present: Build, addable: BuildElement[], lu: Lookup) => {
