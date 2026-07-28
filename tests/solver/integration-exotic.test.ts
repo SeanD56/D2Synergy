@@ -117,6 +117,11 @@ describe.runIf(hasDataset)("solve — exotic armor dimension (real data)", () =>
     const piece = ctx.lookup.armor(chosen!)!;
     expect(piece.tier).toBe("exotic");
     expect(piece.classType).toBe("warlock");
+    // deriveExoticArmorPool deliberately keeps untagged exotics in the pool, so a solver that
+    // picked one would otherwise pass the checks above silently. Assert the "tagged" claim in
+    // this test's name explicitly rather than leaving it unverified.
+    const tagCount = piece.tags.produces.length + piece.tags.consumes.length + piece.tags.triggers.length;
+    expect(tagCount).toBeGreaterThan(0);
   });
 
   it("scores at least as well as the same build with the exotic dimension closed", () => {
