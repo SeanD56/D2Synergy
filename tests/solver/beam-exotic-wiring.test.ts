@@ -2,10 +2,10 @@ import { describe, expect, it } from "vitest";
 
 import { createLookup } from "@/lib/validation";
 import { synergyUpperBound } from "@/lib/synergy";
-import type { Armor, Artifact, Aspect, Build, DerivedDataset } from "@/lib/types";
+import type { Armor, Artifact, Aspect, Build, DerivedDataset, Fragment } from "@/lib/types";
 import { EMPTY_TAGS } from "@/lib/types";
 
-import { beamSearch, buildSolverEnv, stateKey } from "@/lib/solver/beam";
+import { beamSearch, buildSolverEnv, expand, makeState, stateKey } from "@/lib/solver/beam";
 import type { SolverContext } from "@/lib/solver";
 
 const EMPTY_INDEXES = {
@@ -27,20 +27,34 @@ const exo = (hash: number, name: string, classType = "warlock"): Armor => ({
   classType, modSocketHashes: [], tags: EMPTY_TAGS,
 }) as Armor;
 
-function ctxWith(pieces: Armor[]): SolverContext {
+function ctxWith(
+  pieces: Armor[],
+  opts: { aspects?: Aspect[]; fragments?: Fragment[] } = {},
+): SolverContext {
   const exoticToClassSlot: Record<number, { classType: string; slot: string }> = {};
   for (const a of pieces) exoticToClassSlot[a.hash] = { classType: a.classType, slot: a.slot };
+  const fragments = opts.fragments ?? [];
+  // deriveFragmentPool reads elementToItems, not the raw fragments array — mirror that
+  // inverted index for any fragment the test fixture supplies.
+  const elementToItems: Partial<Record<string, number[]>> = {};
+  for (const f of fragments) (elementToItems[f.element] ??= []).push(f.hash);
   const ds = {
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
-    subclasses: [], aspects: [aspect100], fragments: [], weapons: [], armor: pieces,
+    subclasses: [], aspects: opts.aspects ?? [aspect100], fragments,
+    weapons: [], armor: pieces,
     armorSets: [], mods: [], artifacts: [artifact300], perks: [], stats: [], plugTags: {},
-    indexes: { ...EMPTY_INDEXES, exoticToClassSlot },
+    indexes: { ...EMPTY_INDEXES, exoticToClassSlot, elementToItems },
   } as unknown as DerivedDataset;
   return { lookup: createLookup(ds), indexes: ds.indexes };
 }
 
-const build = (over: { classType?: string; exoticHash?: number; constraints?: unknown[] } = {}): Build => ({
-  subclass: { element: "arc", aspectHashes: [100], fragmentHashes: [], classType: over.classType },
+const build = (
+  over: { classType?: string; exoticHash?: number; constraints?: unknown[]; aspectHashes?: number[] } = {},
+): Build => ({
+  subclass: {
+    element: "arc", aspectHashes: over.aspectHashes ?? [100], fragmentHashes: [],
+    classType: over.classType,
+  },
   weapons: [],
   armor: { pieces: [], setBonuses: [], statPriorities: [], modHashes: [], exoticHash: over.exoticHash },
   artifact: { artifactHash: 300, selectedPerkHashes: [] },
@@ -91,6 +105,18 @@ describe("buildSolverEnv — exotic dimension", () => {
     )!;
     expect(env.exoticPool).toEqual([]);
   });
+
+  // Renamed from "returns no completion when the dimension is open but every state is a
+  // dead end" (Task-4 review, Finding 3): this test never calls beamSearch — it asserts
+  // buildSolverEnv's null return for a class-filtered pool that tier-filters to empty. It
+  // does NOT cover the terminal guard's exotic clause (see the beamSearch describe block
+  // below for that).
+  it("is INFEASIBLE when the class-filtered pool tier-filters to empty", () => {
+    // Pool of one whose only member is filtered out by tier — pool empty ⇒ infeasible env.
+    const notExotic = { ...exo(10, "A"), tier: "legendary" } as Armor;
+    const env = buildSolverEnv(build({ classType: "warlock" }), ctxWith([notExotic]), {});
+    expect(env).toBeNull();
+  });
 });
 
 describe("beamSearch — exotic terminal behaviour", () => {
@@ -105,18 +131,128 @@ describe("beamSearch — exotic terminal behaviour", () => {
     }
   });
 
-  it("returns no completion when the dimension is open but every state is a dead end", () => {
-    // Pool of one whose only member is filtered out by tier — pool empty ⇒ infeasible env.
-    const notExotic = { ...exo(10, "A"), tier: "legendary" } as Armor;
-    const env = buildSolverEnv(build({ classType: "warlock" }), ctxWith([notExotic]), {});
-    expect(env).toBeNull();
-  });
-
-  it("preserves the base exoticHash through unrelated moves", () => {
+  // Renamed from "preserves the base exoticHash through unrelated moves" (Task-4 review,
+  // Finding 3): with the dimension closed and every other pool empty, the root state is
+  // immediately terminal — there are no "unrelated moves" in this fixture. The added
+  // length assertion makes this fail-closed: without it, an empty `completed` would pass
+  // vacuously (unlike its sibling test above).
+  it("preserves the base exoticHash when the dimension is closed and the root state is already terminal", () => {
     const env = buildSolverEnv(
       build({ classType: "warlock", exoticHash: 10 }), ctxWith([exo(10, "A")]), {},
     )!;
     const completed = beamSearch(env, synergyUpperBound);
+    expect(completed.length).toBeGreaterThan(0);
     for (const s of completed) expect(s.build.armor.exoticHash).toBe(10);
+  });
+
+  // Finding 1 (Task-4 review): every fixture above has zero non-exotic moves (fragmentCap
+  // 0, empty perk pool, no weapon slots), so the only candidate kind ever produced is
+  // "exoticArmor" — the four `expand()` branches that must forward `state.exoticHash`
+  // (fragment, artifactPerk, weapon, weaponPerk) are never exercised with a *defined*
+  // `state.exoticHash`. This fixture opens a second dimension (one fragment, cap 1) so the
+  // beam explores the "exotic chosen, then fragment added" order.
+  //
+  // NOTE on what this test does and does NOT prove: measured by deliberately reintroducing
+  // the bug (dropping the trailing `state.exoticHash` from the "fragment" branch) and
+  // rerunning, THIS test alone stays green — `generateCandidates` unconditionally re-offers
+  // the *entire* `env.exoticPool` whenever its `exoticHash` argument is undefined, with no
+  // notion of "already offered", so a dropped forward is never a permanent loss: the state
+  // simply isn't terminal yet (an exoticArmor candidate reappears) and the search
+  // self-heals by re-deciding the exotic one round later, converging on the same completed
+  // set. So an assertion over `beamSearch`'s completed states can demonstrate CORRECT
+  // behavior but cannot, by itself, prove the forwarding bug is caught — see the direct
+  // `expand()` test below for that proof. This test is kept as an end-to-end sanity check
+  // that the two dimensions interleave correctly under the real (non-mutated) code.
+  it("keeps a chosen exotic through the fragment dimension, in every completion order", () => {
+    const taggedAspect: Aspect = {
+      kind: "aspect", hash: 101, name: "AspFrag", element: "arc", classType: "any",
+      fragmentSlots: 1, tags: EMPTY_TAGS,
+    };
+    const frag: Fragment = {
+      kind: "fragment", hash: 500, name: "Frag", element: "arc", statModifiers: [], tags: EMPTY_TAGS,
+    };
+    const ctx = ctxWith([exo(10, "A"), exo(11, "B")], { aspects: [taggedAspect], fragments: [frag] });
+    const env = buildSolverEnv(
+      build({ classType: "warlock", aspectHashes: [101] }), ctx, {},
+    )!;
+    expect(env.fragmentCap).toBe(1);
+    expect(env.exoticPool.length).toBe(2);
+
+    const completed = beamSearch(env, synergyUpperBound);
+    expect(completed.length).toBeGreaterThan(0);
+    for (const s of completed) {
+      expect(s.fragHashes).toEqual([500]);
+      expect(s.exoticHash).toBeDefined();
+      expect(s.build.armor.exoticHash).toBe(s.exoticHash);
+    }
+  });
+
+  // The mutation-adversarial proof for Finding 1: build a parent state directly with the
+  // exotic ALREADY decided (`exoticHash: 10`) and one legal fragment move still open, then
+  // call `expand()` — the unit under test — directly. `generateCandidates` only offers
+  // "fragment" here (the exotic is decided, so no `exoticArmor` candidate exists to mask a
+  // forwarding bug via re-selection), so this cannot self-heal the way the beamSearch-level
+  // test above can. Confirmed by mutation (see the task report for both runs): deleting the
+  // trailing `state.exoticHash` from the "fragment" branch turns this RED
+  // (`child.exoticHash` becomes `undefined`); restoring it turns it GREEN.
+  it("expand()'s fragment branch forwards an already-decided exotic to the child state", () => {
+    const taggedAspect: Aspect = {
+      kind: "aspect", hash: 101, name: "AspFrag", element: "arc", classType: "any",
+      fragmentSlots: 1, tags: EMPTY_TAGS,
+    };
+    const frag: Fragment = {
+      kind: "fragment", hash: 500, name: "Frag", element: "arc", statModifiers: [], tags: EMPTY_TAGS,
+    };
+    const ctx = ctxWith([exo(10, "A"), exo(11, "B")], { aspects: [taggedAspect], fragments: [frag] });
+    const env = buildSolverEnv(
+      build({ classType: "warlock", aspectHashes: [101] }), ctx, {},
+    )!;
+
+    const parent = makeState(env, [], [], synergyUpperBound, [], 10);
+    // The exotic is already decided, so the only legal move left is the fragment — no
+    // exoticArmor candidate exists here to mask a dropped forward via re-selection.
+    expect(parent.candidates.map((c) => c.kind)).toEqual(["fragment"]);
+
+    const children = expand(parent, env, synergyUpperBound);
+    expect(children).toHaveLength(1);
+    expect(children[0].fragHashes).toEqual([500]);
+    expect(children[0].exoticHash).toBe(10);
+  });
+});
+
+describe("beam bound — exotic reach wiring", () => {
+  // Finding 2 (Task-4 review): every exotic in the wiring tests above carries EMPTY_TAGS,
+  // so `deriveExoticReach` always returns `[]` and `beam.ts`'s
+  // `if (exoticHash === undefined && env.exoticPool.length > 0) addable.push(...env.exoticReach);`
+  // line executes but pushes nothing — the admissibility-relevant bound wiring is never
+  // observed to change `priority`. This test gives one exotic a producer tag matched by a
+  // consumer already present in the build (the aspect), and confirms the reach both exists
+  // and moves the root state's optimistic bound.
+  it("credits the undecided exotic's reachable tags in the root state's priority", () => {
+    const consumerAspect: Aspect = {
+      kind: "aspect", hash: 102, name: "AspConsume", element: "arc", classType: "any",
+      fragmentSlots: 0, tags: { produces: [], consumes: ["boop"], triggers: [] },
+    };
+    const taggedExo = { ...exo(10, "A"), tags: { produces: ["boop"], consumes: [], triggers: [] } } as Armor;
+    const plainExo = exo(11, "B");
+
+    const ctxTagged = ctxWith([taggedExo, plainExo], { aspects: [consumerAspect] });
+    const ctxUntagged = ctxWith([plainExo], { aspects: [consumerAspect] });
+    const b = build({ classType: "warlock", aspectHashes: [102] });
+
+    const envTagged = buildSolverEnv(b, ctxTagged, {})!;
+    const envUntagged = buildSolverEnv(b, ctxUntagged, {})!;
+    expect(envTagged.exoticReach.length).toBeGreaterThan(0);
+    expect(envUntagged.exoticReach).toEqual([]);
+
+    const rootTagged = makeState(
+      envTagged, envTagged.base.subclass.fragmentHashes, envTagged.base.artifact.selectedPerkHashes,
+      synergyUpperBound,
+    );
+    const rootUntagged = makeState(
+      envUntagged, envUntagged.base.subclass.fragmentHashes, envUntagged.base.artifact.selectedPerkHashes,
+      synergyUpperBound,
+    );
+    expect(rootTagged.priority).toBeGreaterThan(rootUntagged.priority);
   });
 });
