@@ -107,4 +107,51 @@ describe.runIf(hasDataset)("solve — exotic armor dimension (real data)", () =>
     const marginalFactor = open.calls / closed.calls;
     expect(marginalFactor).toBeLessThan(MAX_EXOTIC_MARGINAL_FACTOR);
   });
+
+  it("chooses a class-correct, tagged exotic", () => {
+    const result = solve(fixture(), ctx, { beamWidth: 8, topN: 3 });
+    expect(result.feasible).toBe(true);
+    expect(result.builds.length).toBeGreaterThan(0);
+    const chosen = result.builds[0].build.armor.exoticHash;
+    expect(chosen).toBeDefined();
+    const piece = ctx.lookup.armor(chosen!)!;
+    expect(piece.tier).toBe("exotic");
+    expect(piece.classType).toBe("warlock");
+  });
+
+  it("scores at least as well as the same build with the exotic dimension closed", () => {
+    const withExotic = solve(fixture(), ctx, { beamWidth: 8, topN: 1 });
+    const closed = fixtureWithClassType(undefined);
+    const withoutExotic = solve(closed, ctx, { beamWidth: 8, topN: 1 });
+    expect(withoutExotic.feasible).toBe(true);
+    expect(withExotic.builds[0].score).toBeGreaterThanOrEqual(withoutExotic.builds[0].score);
+  });
+
+  it("honours a useExotic pin", () => {
+    const base = fixture();
+    const pool = ds.armor.filter((a) => a.tier === "exotic" && a.classType === "warlock");
+    const pin = pool[0].hash;
+    const pinned = { ...base, constraints: [{ kind: "useExotic", itemHash: pin }] } as unknown as Build;
+    const result = solve(pinned, ctx, { beamWidth: 8, topN: 1 });
+    expect(result.feasible).toBe(true);
+    expect(result.builds[0].build.armor.exoticHash).toBe(pin);
+  });
+
+  it("is infeasible when the pin contradicts the pinned class", () => {
+    const titan = ds.armor.find((a) => a.tier === "exotic" && a.classType === "titan")!;
+    const bad = {
+      ...fixture(), constraints: [{ kind: "useExotic", itemHash: titan.hash }],
+    } as unknown as Build;
+    const result = solve(bad, ctx, { beamWidth: 8, topN: 1 });
+    expect(result.feasible).toBe(false);
+    expect(result.builds).toEqual([]);
+  });
+
+  it("re-validates: the completed build has no game violations from the armor rules", async () => {
+    const { validateBuild } = await import("@/lib/validation");
+    const result = solve(fixture(), ctx, { beamWidth: 8, topN: 1 });
+    const violations = validateBuild(result.builds[0].build, ctx.lookup)
+      .violations.filter((v) => v.category === "game" && v.subject.kind === "armor");
+    expect(violations).toEqual([]);
+  });
 });

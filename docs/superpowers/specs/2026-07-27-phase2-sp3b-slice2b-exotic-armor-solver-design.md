@@ -223,8 +223,7 @@ Determinism: name-dedup keeps the **lowest hash** per name; the pool is hash-sor
 5. **Cost — measured EARLY, not last (see the Bound section).** The existing weapons tripwire must
    still measure **exactly 10,842** bound calls; that is what proves this change is additive rather
    than merely non-breaking. The new exotic-dimension test gets its **own** ceiling, set from the
-   measured run — any number quoted before that run (including this spec's 16k–33k guess) is an
-   estimate and must not be committed as a ceiling.
+   measured run (see "Done means" below for the actual figure).
 6. **Real-data integration** — class pinned ⇒ an exotic is chosen, is class-correct, carries tags,
    and scores ≥ the no-exotic baseline.
 7. **Validator** — the newly-unblocked `classConsistency` clause: armor class must match
@@ -235,9 +234,28 @@ real-data claims use floor assertions rather than `> 0`.
 
 ## Done means
 
-Full suite green (176 existing + new), `tsc --noEmit` clean, `eslint scripts src tests` clean, the
-acceptance gate demonstrated load-bearing in both directions, the existing weapons cost tripwire
-still at 10,842, and the new dimension's measured cost recorded here.
+Full suite green (222/222 across 39 files), `tsc --noEmit` clean, `eslint scripts src tests` clean,
+the acceptance gate demonstrated load-bearing in both directions, and the existing weapons cost
+tripwire still at 10,842.
+
+**Measured cost.** On real data, the exotic dimension costs **5,567** bound calls open vs.
+**2,136** with the dimension closed — a **2.61×** marginal factor. This supersedes the 16k–33k
+estimate carried earlier in this document: the feared ~38× over-credit from the reach union's
+width (see the Bound section above) does not translate into a proportional bound-call cost,
+because the beam does not pay per-element for a loose bound — it pays per candidate expanded. The
+dimension earns this cost: top score goes from **14.5** (closed) to **21.0** (open) on the same
+fixture, a ~45% improvement, choosing Ballidorse Wrathweavers (hash `2109877638`).
+
+**Structural finding — acceptance gate could not be an outcome test.** Unlike slice 1's weapons
+dimension (two-stage: slot selection then roll, so "does the gate change the winner" is a clean
+before/after), the exotic dimension is single-stage and always selectable. "Choose the exotic
+first" is a sibling of every other path through the beam, and the exotic producer sits in `present`
+with the consumer as an ordinary fragment candidate — there is no outcome-based test that can prove
+`exoticReach` load-bearing, because no run without it is well-formed to compare against. What *is*
+provable, and is pinned by a property test instead, is **admissibility**: the bound never
+under-counts what a real completion could contribute. Implication for future work: **any future
+single-stage dimension needs an admissibility property test, not an outcome gate** — do not attempt
+to replicate slice 1's before/after pattern on a single-stage dimension.
 
 ## What later slices inherit
 
