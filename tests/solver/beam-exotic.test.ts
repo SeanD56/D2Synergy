@@ -46,10 +46,19 @@ const exoProducer: Armor = {
   classType: "warlock", modSocketHashes: [], tags: tag({ produces: ["jolt"] }),
 } as Armor;
 
+// A non-exotic piece, so "an exotic piece closes the dimension" can be contrasted against a
+// legendary one that must NOT close it. Absent from `exoticToClassSlot`, as real data is.
+const legHelmet: Armor = {
+  kind: "armor", hash: 700, name: "LegHelm", icon: "", slot: "helmet", tier: "legendary",
+  classType: "warlock", modSocketHashes: [], tags: EMPTY_TAGS,
+} as Armor;
+
 function ctxFor(): SolverContext {
-  const armorPieces = [exoInert, exoProducer];
+  const armorPieces = [legHelmet, exoInert, exoProducer];
   const exoticToClassSlot: Record<number, { classType: string; slot: string }> = {};
-  for (const a of armorPieces) exoticToClassSlot[a.hash] = { classType: a.classType, slot: a.slot };
+  for (const a of armorPieces) {
+    if (a.tier === "exotic") exoticToClassSlot[a.hash] = { classType: a.classType, slot: a.slot };
+  }
   const ds = {
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
     subclasses: [], aspects: [aspect100], fragments: [fragInert, fragConsumer],
@@ -100,6 +109,36 @@ describe("beamSearch — exotic armor delayed reward", () => {
     expect(completed[0].build.armor.exoticHash).toBe(800);
     expect(completed[0].build.subclass.fragmentHashes).toEqual([400]);
     expect(completed[0].realized.score).toBe(0);
+  });
+});
+
+describe("buildSolverEnv — the exotic dimension closes on an exotic from EITHER field", () => {
+  it("stays closed when a specified piece already resolves to an exotic", () => {
+    const base = pinnedBuild();
+    const withExoticPiece = {
+      ...base,
+      armor: { ...base.armor, pieces: [{ slot: "helmet", itemHash: exoInert.hash }] },
+    } as Build;
+
+    const env = buildSolverEnv(withExoticPiece, ctxFor(), { beamWidth: 1 })!;
+    expect(env).toBeTruthy();
+    // Non-empty pool ⇔ dimension open; an exotic piece must close it, or the solver would
+    // choose a SECOND exotic on top of the one the user pinned.
+    expect(env.exoticPool).toEqual([]);
+    const completed = beamSearch(env, synergyUpperBound);
+    expect(completed).toHaveLength(1);
+    expect(completed[0].build.armor.exoticHash).toBeUndefined();
+  });
+
+  it("still opens when the specified pieces are all non-exotic", () => {
+    const base = pinnedBuild();
+    const withLegendaryPiece = {
+      ...base,
+      armor: { ...base.armor, pieces: [{ slot: "helmet", itemHash: legHelmet.hash }] },
+    } as Build;
+
+    const env = buildSolverEnv(withLegendaryPiece, ctxFor(), { beamWidth: 1 })!;
+    expect(env.exoticPool.map((a) => a.hash)).toEqual([800, 801]);
   });
 });
 

@@ -70,6 +70,50 @@ it("flags a complete 5-piece set with no exotic", () => {
   expect(run(b, lk)).toContain("MISSING_EXOTIC_ARMOR");
 });
 
+// Until the solver gained the exotic dimension nothing populated `armor.exoticHash` and
+// `armor.pieces` together, so these three paths were unreachable. They become real the
+// moment SP4 populates `pieces` alongside a solver-chosen exotic.
+describe("exoticCount — pieces/exoticHash union (slice 2b)", () => {
+  // 1 and 2 are exotic titan (from the shared fixture above); 20+ are legendary titan.
+  const lk: Partial<Lookup> = {
+    armor: (h) =>
+      (h === 1 ? A(1, "helmet", "exotic", "titan")
+        : h === 2 ? A(2, "arms", "exotic", "titan")
+          : A(h, "x", "legendary", "titan")),
+  };
+  const slots: ArmorSlot[] = ["helmet", "arms", "chest", "legs", "class"];
+  const fiveLegendary = slots.map((slot, i) => ({ slot, itemHash: 20 + i }));
+
+  it("does not flag MISSING_EXOTIC_ARMOR for five legendary pieces plus a solver-chosen exotic", () => {
+    // Anti-vacuity: the same five pieces WITHOUT the exotic are the classic missing-exotic case.
+    const without: Build = { ...base, armor: { ...base.armor, pieces: fiveLegendary } };
+    expect(run(without, lk)).toContain("MISSING_EXOTIC_ARMOR");
+
+    const b: Build = { ...base, armor: { ...base.armor, pieces: fiveLegendary, exoticHash: 1 } };
+    expect(run(b, lk)).toEqual([]);
+  });
+
+  it("flags an exotic piece plus a DIFFERENT exoticHash as a two-exotic build", () => {
+    const b: Build = { ...base, armor: { ...base.armor,
+      pieces: [{ slot: "helmet", itemHash: 1 }], exoticHash: 2 } };
+    expect(run(b, lk)).toEqual(["MULTIPLE_EXOTIC_ARMOR"]);
+  });
+
+  it("counts the SAME exotic named in both fields as exactly one", () => {
+    const b: Build = { ...base, armor: { ...base.armor,
+      pieces: [{ slot: "helmet", itemHash: 1 }], exoticHash: 1 } };
+    expect(run(b, lk)).toEqual([]);
+  });
+
+  it("applies the <=4-per-set rule when the exotic lives only in exoticHash", () => {
+    const set: Partial<Lookup> = { armor: (h) =>
+      (h === 1 ? A(1, "helmet", "exotic", "titan") : A(h, "x", "legendary", "titan", 900)) };
+    const b: Build = { ...base, armor: { ...base.armor,
+      pieces: fiveLegendary, exoticHash: 1 } };
+    expect(run(b, set)).toContain("SET_COUNT_INVALID");
+  });
+});
+
 describe("classConsistency — build class match (slice 2b)", () => {
   // A(hash, slot, tier, classType) is the existing helper defined above in this file.
   // NOTE (deviation from brief): hash 901 is "legendary" here, not "exotic" as the brief's
@@ -105,6 +149,17 @@ describe("classConsistency — build class match (slice 2b)", () => {
 
   it("does NOT fire when classType is absent (every pre-slice-2b build stays valid)", () => {
     expect(run(withClass(undefined, { exoticHash: 901 }), lookup)).toEqual([]);
+  });
+
+  // The first clause considers `exoticHash` UNCONDITIONALLY — it does not need a pinned
+  // classType, and it is deliberately tier-agnostic (901 is legendary here). Isolating this
+  // matters because a build carrying both an `exoticHash` and `pieces` only became a real
+  // shape once the solver started writing `exoticHash`.
+  it("flags an exoticHash and pieces of different classes with NO class pinned", () => {
+    expect(run(
+      withClass(undefined, { pieces: [{ slot: "arms", itemHash: 901 }], exoticHash: 900 }),
+      lookup,
+    )).toEqual(["ARMOR_CLASS_MISMATCH"]);
   });
 
   it("still catches pieces spanning multiple classes with no class pinned", () => {

@@ -1,4 +1,4 @@
-import type { Armor, ArtifactPerk, Build, Constraint, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
 import { EMPTY_TAGS } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
@@ -139,16 +139,24 @@ export function buildSolverEnv(
   const resolvePlugTags = (plug: { hash: Hash; name: string }) =>
     ctx.lookup.plugTags(plug.hash) ?? ctx.lookup.perkByName(plug.name)?.tags ?? EMPTY_TAGS;
 
-  // Exotic armor. The dimension is OPEN iff the base does not already fix an exotic AND we
-  // have either a Guardian class to filter by or a useExotic pin. Because we return null
-  // when it is open but admits nothing, a non-empty pool ⇔ open.
+  // Exotic armor. The dimension is OPEN iff the base does not already fix an exotic — in
+  // EITHER armor field, since a build may record its exotic as a piece (see `ArmorLoadout`)
+  // — AND we have either a Guardian class to filter by or a useExotic pin. Checking both
+  // fields is what makes "non-empty pool ⇔ dimension open" true against the whole armor
+  // model: without it, a user who pins an exotic *piece* gets a SECOND exotic chosen here.
+  // (A useExotic pin alongside an exotic piece therefore closes the dimension rather than
+  // producing two exotics; slice 4's infeasibility explanation is where that gets voiced.)
   let pinnedExotic: Hash | undefined;
-  for (const c of base.constraints as Constraint[]) {
+  for (const c of base.constraints) {
     if (c.kind === "useExotic") pinnedExotic = c.itemHash;
   }
+  const pieceExotic = base.armor.pieces.some(
+    (p) => p.itemHash !== undefined && ctx.lookup.armor(p.itemHash)?.tier === "exotic",
+  );
   const classType = base.subclass.classType;
   let exoticPool: Armor[] = [];
-  if (base.armor.exoticHash === undefined && (classType !== undefined || pinnedExotic !== undefined)) {
+  if (base.armor.exoticHash === undefined && !pieceExotic
+      && (classType !== undefined || pinnedExotic !== undefined)) {
     exoticPool = deriveExoticArmorPool(ctx, classType, pinnedExotic);
     // Pin contradicts the class, or names a hash absent from the dataset. Slice 4 will
     // explain WHICH; here it is simply infeasible.

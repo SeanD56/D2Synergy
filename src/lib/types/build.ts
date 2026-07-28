@@ -67,7 +67,24 @@ export interface StatPriority {
   ignore?: boolean;
 }
 
-/** Armor configuration: exotic, five pieces, derived bonuses, stat goals, mods. */
+/**
+ * Armor configuration: exotic, five pieces, derived bonuses, stat goals, mods.
+ *
+ * **`exoticHash` and `pieces` are two ways to record the SAME thing, and both are legal.**
+ * A build's exotic may live in either field:
+ * - `pieces` carries whole equipped items, one per `ArmorSlot`. A hand-built or (from SP4
+ *   onward) stat-optimized loadout puts its exotic here, like any other piece.
+ * - `exoticHash` names the exotic on its own, with no slot commitment. **The solver writes
+ *   ONLY this field and never touches `pieces`** (slice 2b chooses the exotic; picking the
+ *   other four is SP4's job), so every solver output records its exotic here.
+ *
+ * Consequently **validation treats their UNION** — see `exoticHashes` in
+ * `src/lib/validation/armor.ts`, which every exotic-counting rule reads. The same exotic
+ * appearing in both fields is ONE exotic. A rule that read only `pieces` would raise a false
+ * `MISSING_EXOTIC_ARMOR` on solver output; one that read only `exoticHash` would miss a
+ * two-exotic build. The solver's exotic dimension likewise stays closed when EITHER field
+ * already fixes an exotic (`buildSolverEnv`).
+ */
 export interface ArmorLoadout {
   exoticHash?: Hash;
   pieces: ArmorPiece[];
