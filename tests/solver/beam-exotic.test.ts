@@ -113,8 +113,16 @@ describe("synergyUpperBound — admissibility over the exotic dimension", () => 
     const env = buildSolverEnv(pinnedBuild(), ctx, { beamWidth: 1 })!;
     // Consumer fragment chosen; exotic still open.
     const s = makeState(env, [401], [], synergyUpperBound, [], undefined);
-    const realized = [800, 801].map((h) =>
-      scoreSynergy({ ...s.build, armor: { ...s.build.armor, exoticHash: h } } as Build, env.lookup).score);
+    // Derive the completion set from the state under test rather than hard-coding it, so
+    // adding a third exotic (or any other candidate kind) cannot silently shrink what this
+    // gate covers. The explicit equality below then pins the fixture invariant loudly: if it
+    // ever drifts, THIS assertion fails rather than the gate quietly weakening. Both matter —
+    // an empty list would make `Math.max(...[])` = -Infinity, which every finite priority
+    // dominates, degrading the gate to a vacuous pass instead of a failure.
+    const hashes = s.candidates.filter((c) => c.kind === "exoticArmor").map((c) => c.hash);
+    expect(hashes).toEqual([800, 801]);
+    const realized = hashes.map((h) =>
+      scoreSynergy({ ...s.build, armor: { ...s.build.armor, exoticHash: h } }, env.lookup).score);
     // MEASURED: bound 1.5 vs best completion 1. Mutating exoticReach away drops the bound to
     // 0 while the completion still realizes 1 — inadmissible, and this assertion goes red.
     expect(s.priority).toBeGreaterThanOrEqual(Math.max(...realized));
