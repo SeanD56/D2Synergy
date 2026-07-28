@@ -562,12 +562,23 @@ describe("generateCandidates — exotic armor", () => {
   });
 
   it("omits the trailing arg entirely — byte-compatible with slice 1 call sites", () => {
-    expect(generateCandidates(envWith([armor(10, "A")]), [], [], CAP, [])).toEqual([]);
+    expect(generateCandidates(envWith([]), [], [], CAP, [])).toEqual([]);
   });
 });
 ```
 
-Note the last test: with `exoticHash` omitted it is `undefined`, which WOULD offer moves — except this env's pool is only reachable through the new param, so the assertion pins that an old-style 5-arg call still produces no exotic moves **when the env has no pool**. Implement `CandidateEnv.exoticPool` as required-but-possibly-empty; Task 4 always supplies it.
+Note the last test — and note what it does NOT claim. With `exoticHash` omitted it is
+`undefined`, so a **non-empty** pool WOULD offer moves; omitting the arg is not by itself a
+way to keep the dimension closed. The env's pool is what closes it. So this test pairs an
+old-style 5-arg call with an **empty** pool, pinning the only property slice 1 needs: an
+existing call site that never learned about exotics still produces no exotic moves, because
+its env carries no pool. Implement `CandidateEnv.exoticPool` as required-but-possibly-empty;
+Task 4 always supplies it.
+
+(Corrected during pre-flight review, 2026-07-28: this test previously passed
+`envWith([armor(10, "A")])` while asserting `[]`, which contradicts this task's own
+implementation — an omitted trailing arg plus a one-entry pool emits one candidate. Ruling:
+the stated intent governs, so the fixture is now an empty pool.)
 
 - [ ] **Step 2: Run the tests to verify they fail**
 
