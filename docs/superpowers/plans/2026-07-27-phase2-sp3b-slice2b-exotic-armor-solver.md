@@ -1275,17 +1275,50 @@ If the zero-bound case also returns `801`, the gate is vacuous: the fixture's ti
 
 - [ ] **Step 3: Prove the gate is load-bearing by mutation**
 
-Slice 2a's lesson: a passing test can encode the same wrong assumption as the code. Temporarily break the bound's reach contribution and confirm the gate turns red:
+Slice 2a's lesson: a passing test can encode the same wrong assumption as the code. Temporarily break the bound's reach contribution and confirm the gate turns red. Back the file up in the **scratchpad**, not `/tmp`, and **`grep` to confirm the `sed` actually applied** before trusting the result — a `sed` that silently matches nothing leaves the file intact, the test green, and that reads identically to "the mutation didn't matter".
 
 ```bash
-cp src/lib/solver/beam.ts /tmp/beam.bak
+cp src/lib/solver/beam.ts "$SCRATCH/beam.bak"
 sed -i 's/  if (exoticHash === undefined \&\& env.exoticPool.length > 0) addable.push(...env.exoticReach);/  \/\/ mutated/' src/lib/solver/beam.ts
+grep -c "addable.push(...env.exoticReach)" src/lib/solver/beam.ts   # MUST be 0
 npx vitest run tests/solver/beam-exotic.test.ts 2>&1 | grep -E "^ +Tests "
-cp /tmp/beam.bak src/lib/solver/beam.ts
-npx vitest run tests/solver/beam-exotic.test.ts 2>&1 | grep -E "^ +Tests "
+cp "$SCRATCH/beam.bak" src/lib/solver/beam.ts
+git diff --stat src/lib/solver/beam.ts   # MUST be empty
 ```
 
-Expected: the mutated run FAILS the bound-ON case (without `exoticReach` the producer looks worthless at W=1), and the restored run passes. If the mutated run passes, the gate is not testing the reach term — investigate before continuing.
+**⚠️ MEASURED CORRECTION (2026-07-28) — the original expectation here was WRONG, do not restore it.**
+
+This step used to expect the mutated run to fail the bound-ON case. **It does not.** Measured: with `exoticReach` removed (mutation confirmed applied by `grep`), both tests in this file still pass, winners unchanged at `801`/`401` and `800`/`400`.
+
+*Why, and it is structural rather than a fixture defect:* the exotic dimension is **single-stage and always selectable**, so "choose the exotic first" is a sibling of every other path from the root. That sibling has the producing exotic in `present` (via `collectBuildElements` reading `armor.exoticHash`) and the consuming fragment in `addable` as an ordinary fragment candidate — reaching the same bound (1.5) through the normal candidate path, with no `exoticReach` involved. Every completion is therefore reachable via an exotic-decided sibling whose bound is correct without the reach term, so removing it cannot prune the optimum. **No outcome-based fixture can prove `exoticReach` load-bearing.** Do not attempt to build one; the two tests above are still worth keeping, but what they prove is that *the bound as a whole* is load-bearing versus a zero bound — not that the reach term is.
+
+- [ ] **Step 3b: Pin `exoticReach` with an ADMISSIBILITY property test (this is the real gate)**
+
+`exoticReach` is load-bearing for **admissibility**, which is a property of the bound rather than of the search outcome — and admissibility is the invariant all of SP3a's pruning correctness rests on. Assert it directly: for a state `S` whose exotic is **undecided**, `S.priority` must dominate the realized score of every completion of `S`.
+
+Add to `tests/solver/beam-exotic.test.ts`, reusing the fixture above:
+
+```ts
+describe("synergyUpperBound — admissibility over the exotic dimension", () => {
+  // THE gate for exoticReach. Outcome-based tests cannot catch its removal (see the plan's
+  // Step 3), because a chosen exotic lands in `present` and its consumer is an ordinary
+  // fragment candidate. But dropping the reach term makes the bound UNDER-estimate an
+  // exotic-undecided state, breaking the admissibility SP3a's pruning depends on.
+  it("bound on an exotic-undecided state dominates every completion's realized score", () => {
+    const ctx = ctxFor();
+    const env = buildSolverEnv(pinnedBuild(), ctx, { beamWidth: 1 })!;
+    // Consumer fragment chosen; exotic still open.
+    const s = makeState(env, [401], [], synergyUpperBound, [], undefined);
+    const realized = [800, 801].map((h) =>
+      scoreSynergy({ ...s.build, armor: { ...s.build.armor, exoticHash: h } } as Build, env.lookup).score);
+    // MEASURED: bound 1.5 vs best completion 1. Mutating exoticReach away drops the bound to
+    // 0 while the completion still realizes 1 — inadmissible, and this assertion goes red.
+    expect(s.priority).toBeGreaterThanOrEqual(Math.max(...realized));
+  });
+});
+```
+
+Needs `makeState` and `scoreSynergy` imported. **Mutation-prove this one** with the same procedure as Step 3: `grep`-confirm the mutation applied, expect this test RED (bound `1.5 → 0`, best completion `1`), restore, expect green, `git diff` empty.
 
 - [ ] **Step 4: Run the full trio and commit**
 
@@ -1300,9 +1333,15 @@ at W=1 — where its realized synergy is still 0 when chosen — and is pruned w
 zero bound in favour of the lexically-smaller inert path. The two runs produce
 OPPOSITE winners (801/401 vs 800/400), so the gate cannot pass vacuously.
 
-Verified load-bearing by mutation: removing the exoticReach contribution to
-addable turns the bound-ON case red, per slice 2a's lesson that a green test can
-encode the same wrong assumption as the code."
+The reach term needs a different instrument. Removing exoticReach does NOT change
+either outcome above: the exotic dimension is single-stage and always selectable,
+so 'choose the exotic first' is a sibling of every path, carrying the producer in
+present and the consumer as an ordinary fragment candidate. Every completion stays
+reachable via a sibling whose bound is correct without the reach term, so no
+outcome-based fixture can prove it load-bearing. An admissibility property test
+pins it instead: on an exotic-undecided state the bound must dominate every
+completion's realized score, which mutation turns red (1.5 -> 0 against a
+completion realizing 1)."
 ```
 
 ---
