@@ -120,7 +120,7 @@ async function Result({
   element: NonNullable<ReturnType<typeof parseElement>>;
   classType: ReturnType<typeof parseClassType>;
 }) {
-  const { result, artifactName, elapsedMs } = await recommend({ element, classType });
+  const { result, displays, artifactName, elapsedMs } = await recommend({ element, classType });
 
   if (!result.feasible) {
     // The solver explains itself (slice 4), so surface its own reasons verbatim rather than
@@ -142,6 +142,9 @@ async function Result({
   }
 
   const top = result.builds[0];
+  // Every summary value comes from `display`, never from `top.build`'s hash arrays — that is what
+  // keeps "no raw hash on screen" a property of one resolved object rather than of each row.
+  const display = displays[0];
 
   return (
     <section className="flex flex-col gap-4">
@@ -155,13 +158,13 @@ async function Result({
 
       <dl className="grid grid-cols-[8rem_1fr] gap-y-2 rounded border border-gray-200 p-4 text-sm">
         <dt className="text-xs uppercase tracking-wide text-gray-400">Aspects</dt>
-        <dd>{top.build.subclass.aspectHashes.length || "— pin a class"}</dd>
+        <dd>{display.aspectNames.join(" · ") || "— pin a class"}</dd>
         <dt className="text-xs uppercase tracking-wide text-gray-400">Fragments</dt>
-        <dd>{top.build.subclass.fragmentHashes.length || "—"}</dd>
+        <dd>{display.fragmentNames.join(" · ") || "—"}</dd>
         <dt className="text-xs uppercase tracking-wide text-gray-400">Exotic armour</dt>
-        <dd>{top.build.armor.exoticHash ?? "— pin a class"}</dd>
+        <dd>{display.exoticName ?? "— pin a class"}</dd>
         <dt className="text-xs uppercase tracking-wide text-gray-400">Artifact perks</dt>
-        <dd>{top.build.artifact.selectedPerkHashes.length || "—"}</dd>
+        <dd>{display.artifactPerkNames.join(" · ") || "—"}</dd>
       </dl>
 
       <div className="flex flex-col gap-2">

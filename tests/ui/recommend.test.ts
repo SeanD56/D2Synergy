@@ -3,8 +3,13 @@ import path from "node:path";
 
 import { describe, expect, it } from "vitest";
 
+import { loadDataset } from "@/lib/data";
+import { ASPECT_CAP } from "@/lib/solver/subclass";
+import type { Build, DerivedDataset } from "@/lib/types";
+import { createLookup } from "@/lib/validation";
+
 import {
-  GUARDIAN_CLASSES, parseClassType, parseElement, recommend, SUBCLASS_ELEMENTS,
+  GUARDIAN_CLASSES, parseClassType, parseElement, recommend, resolveDisplay, SUBCLASS_ELEMENTS,
 } from "@/lib/ui/recommend";
 
 const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.json"));
@@ -75,4 +80,92 @@ describe.runIf(hasDataset)("recommend — against the real dataset", () => {
     const { result } = await recommend({ element: "arc", classType: "warlock" });
     expect(result.builds[0].build.armor.modHashes).toEqual([]);
   }, 120_000);
+});
+
+/**
+ * Display resolution. The page renders EXCLUSIVELY from `BuildDisplay`, so these assertions cover
+ * the whole build summary — that is what makes the "no bare hash" test below meaningful rather
+ * than a check on one field the page might not even use.
+ *
+ * Expected names are derived by scanning the dataset ARRAYS, while `recommend` resolves through
+ * the `Lookup` hash maps. Two independent paths, so agreement means the RIGHT entity was resolved
+ * — not merely that some name was produced.
+ */
+describe.runIf(hasDataset)("recommend — resolved display names", () => {
+  it("names every entity the solver chose, in the order it chose them", async () => {
+    const { result, displays } = await recommend({ element: "arc", classType: "warlock" });
+    const ds = await loadDataset();
+    const { build } = result.builds[0];
+    const display = displays[0];
+
+    const nameOf = <T extends { hash: number; name: string }>(pool: T[], hash: number) =>
+      pool.find((e) => e.hash === hash)?.name;
+
+    expect(display.exoticName).toBe(ds.armor.find((a) => a.hash === build.armor.exoticHash)?.name);
+    expect(display.exoticName).toMatch(/\S/);
+
+    expect(display.aspectNames).toHaveLength(ASPECT_CAP);
+    expect(display.aspectNames)
+      .toEqual(build.subclass.aspectHashes.map((h) => nameOf(ds.aspects, h)));
+
+    expect(display.fragmentNames.length).toBeGreaterThan(0);
+    expect(display.fragmentNames)
+      .toEqual(build.subclass.fragmentHashes.map((h) => nameOf(ds.fragments, h)));
+
+    const perks = ds.artifacts.flatMap((a) => a.tiers.flatMap((t) => t.perks));
+    expect(display.artifactPerkNames.length).toBeGreaterThan(0);
+    expect(display.artifactPerkNames)
+      .toEqual(build.artifact.selectedPerkHashes.map((h) => nameOf(perks, h)));
+  }, 120_000);
+
+  it("puts no bare hash in any displayed value", async () => {
+    // The assertion that catches the state this task started from: adding names while leaving a
+    // hash rendered somewhere would otherwise pass every test above. Flattens the whole display
+    // object so a field added later is covered without editing this test.
+    const { displays } = await recommend({ element: "arc", classType: "warlock" });
+    const values = Object.values(displays[0]).flat().filter((v) => typeof v === "string");
+
+    expect(values.length).toBeGreaterThan(0); // else this passes vacuously
+    for (const value of values) expect(value).not.toMatch(/^\d{4,}$/);
+  }, 120_000);
+
+  it("returns one display per ranked build", async () => {
+    // The page indexes displays by rank; resolving only the top build would desynchronise them.
+    const { result, displays } = await recommend({ element: "arc", classType: "warlock" });
+    expect(displays).toHaveLength(result.builds.length);
+  }, 120_000);
+
+  it("leaves closed dimensions unnamed rather than inventing a name", async () => {
+    // No class pinned ⇒ the exotic and aspect dimensions are CLOSED, so there is nothing to name.
+    const { displays } = await recommend({ element: "arc" });
+    expect(displays[0].exoticName).toBeUndefined();
+    expect(displays[0].aspectNames).toEqual([]);
+  }, 120_000);
+});
+
+describe("resolveDisplay — a hash that does not resolve", () => {
+  it("throws naming the hash instead of falling back to displaying it", () => {
+    // Resolution is total by construction: every hash in a solved build came from a pool derived
+    // through this same Lookup. So a miss is a defect, and the honest response is to fail loudly
+    // rather than print a digit string the user cannot act on.
+    const dataset = {
+      meta: { ingestedAt: "", manifestVersion: "", counts: {} },
+      subclasses: [], aspects: [], fragments: [], weapons: [], armor: [],
+      armorSets: [], mods: [], artifacts: [], perks: [], stats: [],
+      indexes: {
+        keyword: { producers: {}, consumers: {} },
+        perkToWeapons: {}, elementToItems: {}, setToPieces: {},
+        exoticToClassSlot: {}, slotToWeapons: {},
+      },
+    } as unknown as DerivedDataset;
+    const build = {
+      subclass: { element: "arc", aspectHashes: [7777], fragmentHashes: [] },
+      weapons: [],
+      armor: { pieces: [], setBonuses: [], statPriorities: [], modHashes: [] },
+      artifact: { selectedPerkHashes: [] },
+      constraints: [],
+    } as unknown as Build;
+
+    expect(() => resolveDisplay(build, createLookup(dataset))).toThrow(/7777/);
+  });
 });
