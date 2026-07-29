@@ -11,11 +11,11 @@ import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 import type { DatasetMeta, Indexes } from "../../src/lib/types";
-import { DATA_DIR, INDEXES_PATH, META_PATH, PLUG_TAGS_PATH } from "./paths";
+import { DATA_DIR, INDEXES_PATH, META_PATH, PLUG_TAGS_PATH, SOCKET_TYPES_PATH } from "./paths";
 import type { TransformResult } from "./transform";
 
 /** Keys of `TransformResult` that serialize as plain entity arrays. */
-type EntityKey = Exclude<keyof TransformResult, "plugTags">;
+type EntityKey = Exclude<keyof TransformResult, "plugTags" | "socketTypes">;
 
 /** Output filename → the `TransformResult` array it serializes. */
 const ENTITY_FILES: Array<[file: string, key: EntityKey]> = [
@@ -54,6 +54,8 @@ export async function emit(options: EmitOptions): Promise<DatasetMeta> {
 
   await writeFile(PLUG_TAGS_PATH, JSON.stringify(options.result.plugTags));
   counts.plugTags = Object.keys(options.result.plugTags).length;
+  await writeFile(SOCKET_TYPES_PATH, JSON.stringify(options.result.socketTypes));
+  counts.socketTypes = Object.keys(options.result.socketTypes).length;
 
   const meta: DatasetMeta = {
     manifestVersion: options.manifestVersion,

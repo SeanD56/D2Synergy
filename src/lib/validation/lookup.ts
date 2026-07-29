@@ -55,6 +55,7 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     perk: (hash) => perks.get(hash),
     perkByName: (name) => perksByName.get(name.toLowerCase()),
     plugTags: (hash) => dataset.plugTags?.[hash],
+    socketCategories: (hash) => dataset.socketTypes?.[hash],
     mod: (hash) => mods.get(hash),
     artifactPerk: (hash) => artifactPerks.get(hash),
   };

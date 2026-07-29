@@ -1,6 +1,6 @@
 {
   "manifestVersion": "244213.26.06.29.2000-1-bnet.65583",
-  "ingestedAt": "2026-07-29T04:18:42.202Z",
+  "ingestedAt": "2026-07-29T04:45:53.723Z",
   "counts": {
     "subclasses": 35,
     "aspects": 75,
@@ -12,6 +12,7 @@
     "artifacts": 7,
     "perks": 3836,
     "stats": 66,
-    "plugTags": 280
+    "plugTags": 280,
+    "socketTypes": 279
   }
 }

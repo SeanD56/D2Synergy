@@ -85,6 +85,14 @@ export interface Lookup {
    * is the primary route to a roll's synergy.
    */
   plugTags(hash: Hash): KeywordTags | undefined;
+  /**
+   * Plug categories an armour socket type accepts, or `undefined` when the socket type is
+   * unknown to the dataset. Feeds the mod capacity oracle (SP3b slice 2c): `Armor.modSocketHashes`
+   * gives a piece's socket types, this gives what each admits. Never returns an empty array —
+   * a socket whose categories could not be resolved is absent, so callers can tell
+   * "unknown socket" from "accepts nothing" (see `scripts/ingest/socket-types.ts`).
+   */
+  socketCategories(hash: Hash): string[] | undefined;
   mod(hash: Hash): Mod | undefined;
   artifactPerk(hash: Hash): ArtifactPerk | undefined;
 }
