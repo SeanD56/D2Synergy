@@ -1,9 +1,19 @@
 # Phase 2 · SP3b — The set-bonus dimension
 
-**Status:** design approved 2026-07-29, ready for an implementation plan.
+**Status:** design approved 2026-07-29. **IN IMPLEMENTATION** — plan at
+`docs/superpowers/plans/2026-07-29-phase2-sp3b-set-bonus-dimension.md` (the source of truth for
+execution), Tasks 1-2 of 8 shipped on branch `phase2-sp3b-set-bonuses`.
+
+**⚠️ One design decision was superseded during pre-flight, by the user:** this spec's validation
+section describes `resolveSolverEnv` re-checking the plan's legality alongside the validator rule.
+Those four rules were instead EXTRACTED into a single shared predicate, `targetPlanProblems` in
+`src/lib/validation/set-plan.ts`, which both callers use — and `SET_PIECE_BUDGET` moved there with
+them rather than living in the solver module as described below. The plan carries the reviewed
+version.
+
 **Predecessor:** slice 2c (mods) — complete on `main`; UI name resolution `f28b9e6`.
-**Baseline to preserve:** 424/424 tests (53 files), `tsc --noEmit` clean, `eslint scripts src tests`
-clean, `npx next build` clean.
+**Baseline at design time:** 424/424 tests (53 files). **Current baseline is 444/444 (54 files)** after
+Tasks 1-2 — see `docs/HANDOFF.md`, which is authoritative for the live counts.
 
 ## Why this dimension
 

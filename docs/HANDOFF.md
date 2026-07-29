@@ -4,7 +4,12 @@
 
 ## Where we are
 
-**UI + set bonuses — on `main` @ `60b7366`, tree clean, 0 unpushed, 419/419 green. NEXT: resolve entity HASHES to NAMES in the recommender page (Task 1 below), then the set-bonus dimension behind a new `targeted` field (Task 2).**
+**Set-bonus dimension, Tasks 2/8 done — on branch `phase2-sp3b-set-bonuses` @ `7bc71b7`, tree clean, 444/444 green, nothing in flight. NEXT: Task 3 — cumulative set-bonus activation in `collectBuildElements`.**
+
+> **⚠️ WORK IS ON A BRANCH, not `main`.** `AGENTS.md` says work happens on `main` "unless the handoff
+> says otherwise" — this is that exception. `main` @ `35a8f7a` carries the finished UI slice plus the
+> spec/plan/roadmap; the set-bonus implementation lives on `phase2-sp3b-set-bonuses`. Both are pushed.
+> Do NOT merge the branch yet: 6 of its 8 tasks are unbuilt.
 
 | Unit | Status |
 | --- | --- |
@@ -12,15 +17,17 @@
 | Slice 4 — infeasibility explanation (8 reason codes) | ✅ `fc2588c` |
 | Ingest repair — Stasis, placeholders, aspect class | ✅ `2aec005` |
 | Slice 3 — solver-chosen **aspects** + dynamic fragment cap | ✅ `7eedef4` |
-| Slice 2c — socket-type side table (data half) | ✅ `c70da9d` |
-| Slice 2c — mod capacity oracle (matching + energy) | ✅ `a18877a` |
-| Slice 2c — canonical Armor 3.0 per-slot layout | ✅ `2e30e55` |
+| Slice 2c — mods, all steps (data + oracle + layout + beam) | ✅ through `e2a3de5` |
 | **Armor 3.0 restriction** on the exotic pool | ✅ `28d14d8` |
-| Slice 2c — **mod ingest fix + beam dimension** | ⏭️ **NEXT** |
-| Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
+| **UI — entity names instead of raw hashes** | ✅ `f28b9e6` (on `main`) |
+| **Set bonuses — Task 1** (types, shared predicate, validator rule) | ✅ `6ff34c8` |
+| **Set bonuses — Task 2** (solver pool, reach, budget) | ✅ `7bc71b7` |
+| **Set bonuses — Tasks 3-8** | ⏭️ **NEXT**, see "Active / next" |
+| SP4 stat optimizer · the F1-F4 feature roadmap | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `419/419 passing, 53 files, 0 failing`.** Also verify the app builds: `npx next build`. Run:
+**Test baseline: `444/444 passing, 54 files, 0 failing`.** Also verify the app builds: `npx next build`,
+and for UI changes verify by **RENDERING** (`next start` + curl), not merely building. Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -29,6 +36,9 @@ empty working tree.
 - Weapons cost tripwire: **exactly 10,527** bound calls (history + recipe in the test).
 - Exotic open/closed marginal factor: **2,446 → 6,643 = 2.72x**, pool 47/class.
 - Aspect open/closed marginal factor: **8,049 → 6,643 = 1.21x**.
+- Mod open/closed marginal factor: **6,643 → 35,663 = 5.37x** (opt-in; see the mods decision).
+- Set-bonus pool: **exactly 58 options** (29 tagged 2-piece + 29 tagged 4-piece over 56 sets).
+  Its marginal factor is **still unmeasured** — Task 7 measures it and sets the default.
 
 **🎯 The user specified a four-feature ROADMAP on 2026-07-29 — see "Feature roadmap" below:**
 Armor Charge → ability uptime → a healing floor → preferred exotics/weapons. Read it before planning
@@ -36,6 +46,15 @@ any work beyond the set-bonus dimension; dependency order differs from the state
 **It does NOT reorder the current queue** (user, 2026-07-29): finish the set-bonus dimension first.
 
 ## Doc pointers
+
+**For the SET-BONUS dimension (the active work) the PLAN is the source of truth for EXECUTION:**
+- **Plan (SOT):** `docs/superpowers/plans/2026-07-29-phase2-sp3b-set-bonus-dimension.md` — 8 TDD
+  tasks with full code inline. Where it and the spec disagree, the plan wins.
+- Spec (the "why" + every measurement): `docs/superpowers/specs/2026-07-29-phase2-sp3b-set-bonus-dimension-design.md`
+- **Execution ledger:** `.superpowers/sdd/2026-07-29-phase2-sp3b-set-bonus-dimension/progress.md`
+  (git-ignored). Records per-task completion + commit ranges, deferred minors, and a correction to
+  the plan's test-count arithmetic. **Read it before re-dispatching anything** — it is what says
+  which tasks are already done.
 
 **`docs/HANDOFF.md` (this file) is the source of truth for EXECUTION** of slice 2c — there is no
 spec/plan pair for it, because the measurements that shape it live here. For earlier slices the
@@ -47,67 +66,45 @@ spec/plan pair for it, because the measurements that shape it live here. For ear
 - Architecture "why": `docs/designs/2026-07-22-d2synergy-buildcrafting-design.md`
 - Full per-slice detail and code-location maps are in the "what shipped" sections lower in this file.
 
-## Active / next — UI names, then set bonuses (order decided by user, 2026-07-29)
+## Active / next — the SET-BONUS dimension, Tasks 3-8 of 8
 
-### ⏭️ TASK 1 — resolve entity hashes to NAMES in the recommender
+**Execution model: subagent-driven development** (fresh implementer per task, then a task review of
+spec compliance + quality). The plan is the contract; the ledger records what is done. Tasks 1-2 are
+✅ complete and reviewed clean — do NOT re-dispatch them.
 
-**Why first:** the recommender works end-to-end but is barely readable — it prints counts and RAW
-HASHES for the exotic, aspects, fragments and artifact perks. `Lookup` already resolves every one of
-them; the wiring simply is not there. Smallest change, largest visible payoff, no design decisions.
+**What is already built and available to Task 3:**
+- `TargetedSetBonus { setHash; pieceCount }` on `ArmorLoadout.targetedSetBonuses?` (`@/lib/types`).
+- `SET_PIECE_BUDGET = 4` + `targetPlanProblems(targets, setExists?)` in
+  `src/lib/validation/set-plan.ts`, re-exported from `@/lib/validation`. **The single source of truth
+  for plan legality** — Task 6 calls the same predicate. Do not re-implement its four rules.
+- The `SET_TARGET_INVALID` validator rule (`armor.ts`), registered in `armorRules`.
+  `setBonusCounts` is UNTOUCHED and must stay that way.
+- `src/lib/solver/set-bonuses.ts`: `deriveSetBonusPool(ctx) -> SetBonusOption[]` (58 options, each
+  carrying a precomputed `element`), `deriveSetBonusReach(ctx, targets) -> BuildElement[]`,
+  `remainingPieceBudget(targets)`.
 
-**What to build:** have `recommend()` return resolved display data alongside the `SolveResult` —
-exotic name, aspect names, fragment names, artifact-perk names — and render those instead of hashes.
-Resolve through the `Lookup` seam (`lookup.armor` / `aspect` / `fragment` / `artifactPerk`), NOT by
-indexing dataset arrays, so the UI keeps the seam the solver uses.
+### ⏭️ TASK 3 — cumulative activation in `collectBuildElements`
 
-**Files:** `src/lib/ui/recommend.ts` (add resolved names to `Recommendation`), `src/app/page.tsx`
-(render them), `tests/ui/recommend.test.ts`.
+**What it builds:** one loop in `src/lib/synergy/elements.ts` (after the `armor.modHashes` loop) that
+turns each targeted set bonus into a `BuildElement` keyed by `sandboxPerkHash`, with the BONUS's own
+tags and `source: "set-bonus:<name>"`. Filter is `b.requiredCount <= t.pieceCount`.
 
-**The tests that prove it done — these assertions specifically:**
-1. For `{ element: "arc", classType: "warlock" }`: the exotic name is a NON-EMPTY string that
-   `ds.armor.find(a => a.name === name)` resolves, and the aspect-name array has length `ASPECT_CAP`
-   with every entry resolving in `ds.aspects`.
-2. A NEGATIVE assertion that catches the current state: no rendered summary value matches
-   `/^\d{4,}$/` (a bare hash). Without it, adding names while leaving hashes in place would pass.
-3. `npx next build` clean, plus a rendered check (`next start` + curl, HTML-stripped) showing a real
-   exotic name for the arc/warlock top build rather than a digit string.
+**Files:** `src/lib/synergy/elements.ts`, new `tests/synergy/elements-set-bonuses.test.ts`.
 
-### ⏭️ TASK 2 — set-bonus dimension, behind a NEW `targeted` field
+**The assertions that prove it done:**
+1. A **4-piece** target yields **TWO** elements (`[9021, 9022]` on the plan's fixture) and a
+   **2-piece** target yields **ONE**. This is the user-confirmed cumulative-threshold mechanic, and
+   it is the whole point of the task — `===` instead of `<=` must redden it (mutation-proven).
+2. Inert when the field is absent (the `?? []` path), so no pre-existing build changes score.
+3. An unresolvable `setHash` is SKIPPED, not thrown — consistent with every other family in that
+   function, because scoring must not crash on a build the validator will reject.
 
-**Decision (user, 2026-07-29): add a SEPARATE targeted field. Do NOT relax `setBonusCounts`.**
-
-**Why:** `setBonusCounts` (`src/lib/validation/armor.ts`) validates each `armor.setBonuses` entry
-against how many pieces of that set appear in `armor.pieces` — which the solver never writes. So a
-prescribed bonus written to `setBonuses` emits `SET_COUNT_INVALID` on **every** build. The two claims
-differ: `setBonuses` asserts "these are ACTIVE" (about equipped pieces); the solver needs "these are
-TARGETED" (about what to obtain). Separate fields mean no rule is weakened and nothing has to guess
-which claim it is reading. Relaxing the rule when `pieces` is empty was REJECTED — it makes the rule
-silently non-enforcing exactly when a build is solver-generated, the same class of mistake as the
-`pieces` ∪ `exoticHash` gap recorded later in this file.
-
-**There IS a real objective:** 58 of 112 set bonuses carry keyword tags across 40 of 56 sets (e.g.
-"Wrecker" produces overshield + stasis_crystal at 2 pieces; "Ascendant Escape" produces invisibility
-at 4). ⚠️ Tags live on each BONUS, not on the set — checking the set level shows 0/56 and is what
-produced an earlier wrong note in this file.
-
-**Slot arithmetic:** 5 armour slots minus 1 exotic leaves **4** legendary slots, and bonuses need 2 or
-4 pieces. Legal plans: one 4-piece bonus, two DIFFERENT 2-piece bonuses, or a single 2-piece.
-
-**The tests that prove it done — these assertions specifically:**
-1. A solver-produced build carrying a targeted set bonus passes `validateBuild` with **zero `game`
-   violations**, specifically no `SET_COUNT_INVALID`. This is the assertion that fails today if the
-   bonus is written to `setBonuses`, so it is what proves the field split works.
-2. Every chosen plan satisfies the arithmetic: total required pieces ≤ 4, and a 4-piece plan is never
-   combined with another bonus. Assert on the PLAN, not merely on feasibility.
-3. An admissibility property test for the set-bonus reach term, **SYNTHETIC not real-data** (see
-   Process + gotchas — a real-data gate went vacuous this session). Mutation-proven: deleting the
-   reach push must redden it.
-4. Weapons tripwire still exactly **10,527**.
-
-**⚠️ Unmodelled, decide before building:** DIM models — and our data confirms — a set-bonus
-**SELECTOR socket** (`selectors`, on 3 exotic class items) letting one piece wildcard a missing set
-piece. Ignoring it over-reports infeasibility. Shipping without it is fine if the limitation is
-stated; do not model it by accident.
+**Then Tasks 4-8**, in order, all specified with code in the plan: beam wiring behind
+`chooseSetBonuses` (Task 4 — note `Selection.setBonusTargets` is REQUIRED, and `tsc` enumerates all
+25 existing call sites for you); the SYNTHETIC admissibility gate (Task 5 — **if it passes with the
+reach push deleted it is VACUOUS and must be fixed, not accepted**); `SET_TARGET_PLAN_ILLEGAL`
+(Task 6); real-data integration + cost measurement + the default-on decision (Task 7); the UI row
+(Task 8).
 
 ## ✅ Slice 2c (mods) — COMPLETE, shipped this session
 
@@ -647,7 +644,28 @@ authoring** — an overlay that lifts realized scores without lifting the bound 
 admissibility silently, which is exactly the failure class this repo keeps catching.
 
 ## Decisions resolved (do not relitigate)
-- **Next order of work: UI names FIRST, then set bonuses (user, 2026-07-29).** *Why:* the recommender already runs end-to-end but prints raw hashes, so name resolution is the smallest change with the largest visible payoff and needs no design decisions; set bonuses then follow with their semantics settled.
+- **Set-bonus thresholds are CUMULATIVE (user, authoritative, 2026-07-29).** Wearing 4 pieces fires
+  the set's 2-piece bonus AS WELL as its 4-piece bonus. *Why it matters:* a decision is therefore a
+  **(set, threshold)** pair rather than a bonus, a 4-piece target contributes **two** tagged elements
+  to synergy, and the arithmetic is *max threshold per set, summed across sets ≤ 4* — not the sum of
+  every targeted bonus's `requiredCount`. `{A:2, A:4}` is not a distinct plan; it IS `{A:4}`.
+- **There is NO set-bonus wildcard mechanic (user, authoritative, 2026-07-29).** The earlier warning
+  in this file — that ignoring a "selector socket" would over-report infeasibility, read from DIM's
+  `hasSetBonusModSocket` — is **WITHDRAWN**, not carried as a limitation. Two corrections behind it:
+  the three selector-socket items are **LEGENDARY**, not "3 exotic class items" as this file claimed
+  (`Raptor's Bond`, `Viperous Cloak`, `Panthera Leo Mark`, category
+  `core.gear_systems.event_gear.item_sets.selectors`), and being legendary they would consume the
+  same slot they substitute for, so they could not enlarge the plan space even if the mechanic
+  existed. *Parked, unverified, no bearing on this work:* those three carry no `setHash` in our data
+  though the user suspects they belong to a set — possibly an ingest gap.
+- **Plan-legality rules live in ONE shared predicate (user-adjudicated pre-flight, 2026-07-29).**
+  `targetPlanProblems` in `src/lib/validation/set-plan.ts` is called by BOTH the validator rule and
+  (at Task 6) `resolveSolverEnv`. *Why:* the plan originally mandated duplicating the four conditions;
+  a rule enforced in one place and not the other is the silent-gap class this repo keeps hitting. It
+  returns STRUCTURED problems rather than formatted messages so the two callers present them
+  differently — one violation per problem vs one accumulated reason. It lives in **validation**, not
+  the solver, because validation must not import the solver and the solver already imports validation.
+- **Next order of work: UI names FIRST, then set bonuses (user, 2026-07-29).** *Why:* the recommender already runs end-to-end but prints raw hashes, so name resolution is the smallest change with the largest visible payoff and needs no design decisions; set bonuses then follow with their semantics settled. **Both are now underway/done** — see the status table.
 - **`armor.setBonuses` keeps meaning "ACTIVE"; the solver gets a SEPARATE targeted field (user, 2026-07-29).** *Why:* "these bonuses are active" (a claim about equipped pieces, which `setBonusCounts` validates against `armor.pieces`) and "these bonuses are targeted" (a claim about what to obtain) are genuinely different claims. Separate fields keep every rule enforcing and stop validation or the UI having to guess which it is reading. **Relaxing `setBonusCounts` when `pieces` is empty was explicitly REJECTED** — it would make the rule silently non-enforcing exactly when a build is solver-generated, repeating the `pieces` ∪ `exoticHash` mistake.
 - **Mods stay OPT-IN; the structural rewrite is NOT scheduled (user, 2026-07-29).** *Why:* 4.4s is tolerable for an explicit "optimise mods" action and unacceptable as a default, and pool tuning is measured-exhausted (cutting `addable` 4x bought ~4%, so the cost is depth-driven). Both structural alternatives cost real quality or real work for a latency win nothing currently needs: per-slot batching needs a candidate-set heuristic, and a post-beam greedy pass discards the delayed-reward discovery the admissible bound exists to provide. Revisit only if something concrete is blocked by the 4.4s.
 - **SP4's armour roll VALUES are to be RESEARCHED FROM EXTERNAL SOURCES (user, 2026-07-29).** The values needed: primary 30 / secondary 25 / tertiary 20 or 25, plus the masterwork and artifice stat increments. They are balance numbers and are absent from the manifest (measured: all 3,996 Armor 3.0 `investmentStats` values are 0). **⚠️ When doing this, CITE THE SOURCE in code next to each constant and date it.** The risk to manage — flagged and accepted: community sources drift between seasons, and a wrong constant silently skews every stat recommendation. That is the same failure mode as the "energy deprecated" note, which took two corrections to unwind. Prefer a source that states the current season explicitly, and treat any number that cannot be corroborated twice as unknown rather than guessing.
@@ -702,6 +720,31 @@ admissibility silently, which is exactly the failure class this repo keeps catch
 - **(Phase 0, still binding):** Approach B static ingestion committed to git; `bungie-api-ts` + `getDestinyManifestSlice`, `X-API-Key` only; energy affinity ignored; synergy rules-first w/ embedding-ready seam; solver = decompose + inverted indexes + beam search (armor-stats = swappable DIM port). Names: repo `D2Synergy`, npm `d2synergy`.
 
 ## Process + gotchas
+- **The set-bonus dimension runs under SUBAGENT-DRIVEN DEVELOPMENT.** Fresh implementer per task,
+  then a task review of spec compliance AND quality; findings enter a fix loop (5 rounds max) before
+  being adjudicated. Ledger: `.superpowers/sdd/2026-07-29-phase2-sp3b-set-bonus-dimension/progress.md`
+  — **trust it and `git log` over recollection**; a task with a `complete` line must not be
+  re-dispatched. Briefs and per-task reports live beside it. Sibling directories in
+  `.superpowers/sdd/` belong to earlier plans; leave them alone.
+- **⚠️ The plan's per-task expected TEST COUNTS run about 4 high.** Task 2 delivered 13 new tests
+  where the plan predicted 17 (verified by counting `it(...)` blocks in the plan's own test code).
+  Reconcile against the actual count and report it — do NOT add filler tests to hit the number, and
+  do not edit the plan's number to match without checking which is right.
+- **⚠️ Do NOT dedup the set-bonus reach by TAG SIGNATURE**, even though `src/lib/solver/mods.ts`
+  legitimately does exactly that for mods. Two DIFFERENT sets can produce the same keyword, so
+  collapsing signatures would under-count producers and make the bound **inadmissible** — silently
+  breaking the pruning SP3a depends on. Dedup by `sandboxPerkHash` only. There is no cost pressure to
+  justify the risk: the dimension is 2 levels deep and ≤58 wide.
+- **⚠️ The set-bonus pool is CLASS-INDEPENDENT, unlike every other pool in the solver.** All 56 sets
+  cover all 3 classes, so nothing in a build ever CLOSES this dimension the way a missing `classType`
+  closes exotics and aspects. Two consequences: byte-compatibility rests only on the empty-key-segment
+  rule plus the `chooseSetBonuses` flag, and enabling it by default changes the output of every
+  existing solve — which is why Task 7 gates the default on measured cost AND test churn.
+- **⚠️ `pkill -f "next start"` kills its own shell** (the pattern matches the killing command's own
+  command line, exit 144). Kill the dev server by port instead:
+  `PID=$(ss -ltnp | grep ':3117' | grep -o 'pid=[0-9]*' | head -1 | cut -d= -f2); kill "$PID"`.
+- **⚠️ A worktree is the wrong isolation tool on this machine** — it needs its own `node_modules`, and
+  `pnpm install` has OOM'd here (exit 137). Use a branch in place, as `phase2-sp3b-set-bonuses` does.
 - **⚠️ ADMISSIBILITY GATES: use a SYNTHETIC fixture, never real data.** A real-data admissibility gate for the mod dimension passed even with the reach term deleted — the other dimensions' reach already dominates any single mod, so the gate was vacuous. The synthetic replacement (`tests/solver/beam-mods.test.ts`) isolates the delayed reward: the ONLY producer of the keyword the pinned fragment consumes is a mod. That version reddens. Real data tends to make these gates pass for the wrong reason.
 - **⚠️ A MUTATION THAT FAILS TO APPLY reads exactly like a mutation that did not matter — and it hid two real bugs this session.** In both cases the grep-confirm showed the edit had not landed, so the accompanying green was meaningless: (1) the `modReach` bound push had silently never been added by an earlier edit, leaving mod candidates filtered out of `addable` with nothing replacing them; (2) the vacuous gate above. ALWAYS assert the target string exists before mutating and grep-confirm after. Python over `sed` for any target containing shell/regex metacharacters.
 - **⚠️ Verify UI work by RENDERING, not by building.** `next build` compiling clean says nothing about output. Start the server and curl with HTML stripped — that is how the arc/warlock, prismatic/hunter and stasis/titan scores were confirmed. A parse error in a test file, similarly, reports "no tests" rather than a failure.

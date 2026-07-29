@@ -9,6 +9,6 @@ This version has breaking changes — APIs, conventions, and file structure may 
 D2Synergy is a Destiny 2 buildcrafting engine: a static-ingested dataset (`data/*.json`) feeding a rules-based synergy engine and a beam-search solver that completes partially-pinned builds.
 
 - **RESUME HERE → `docs/HANDOFF.md`.** It is the single resume point: current phase, task status, test baseline, and the next action. Read it before touching code.
-- Active line of work: **Phase 2 · SP3b** (solver dimensions, delivered in slices) plus the **Next.js recommender UI** in `src/app`. Work happens on `main` unless the handoff says otherwise.
+- Active line of work: **Phase 2 · SP3b** (solver dimensions, delivered in slices) plus the **Next.js recommender UI** in `src/app`. Work happens on `main` unless the handoff says otherwise — **it currently does: the set-bonus dimension is on branch `phase2-sp3b-set-bonuses`.**
 - Specs and plans live in `docs/superpowers/specs/` and `docs/superpowers/plans/`. When a plan and its spec disagree, **the plan wins** — it carries the reviewed code.
 - Verify with `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`, and `npx next build` for UI changes. The handoff records the expected pass count; anything less is a regression.

@@ -69,6 +69,12 @@ code); the one deliberate deviation is called out in Task 1, Step 1.
 
 ### Task 1: The build-model type, the violation code, and the validator rule
 
+> **✅ COMPLETE — commit `6ff34c8`. Task review clean (spec ✅, quality approved, no findings).**
+> Actual: 431 tests / 53 files. Deviations: the test file had no reusable fixture constants, so
+> local `SET_A=700`/`SET_B=701` + minimal armour-set fixtures were added and `EXOTIC_HASH`/
+> `ARTIFACT_HASH` dropped as unnecessary (the other four armour rules provably return `[]` on an
+> empty-`pieces`, no-`exoticHash` build — the reviewer verified this independently).
+
 **Files:**
 - Modify: `src/lib/types/build.ts` (after `ActiveSetBonus`, currently at lines 55-59)
 - Create: `src/lib/validation/set-plan.ts`
@@ -436,6 +442,12 @@ imports validation."
 ---
 
 ### Task 2: The solver module — pool, reach, budget
+
+> **✅ COMPLETE — commit `7bc71b7`. Task review clean (spec ✅, quality approved, 1 deferred minor).**
+> Actual: 444 tests / 54 files; real-data pool measured at **exactly 58**. Both mutations proven.
+> Deferred minor: the commit message says Mutation A "reddens 5" when it reddens 6 — a plan-prose
+> arithmetic error, now permanent in git history; prose only, not a code defect.
+> **Note the plan's expected count of 17 new tests was wrong — 13 is correct.**
 
 **Files:**
 - Create: `src/lib/solver/set-bonuses.ts`
