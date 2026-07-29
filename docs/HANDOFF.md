@@ -14,9 +14,10 @@
 | Aspect pool/reach/dynamic-cap helpers | ✅ shipped, `61a216c` — **not wired** |
 | Slice 3 — solver-chosen **aspects** | ✅ shipped, merge `7eedef4` |
 | Slice 3 — solver-chosen **artifact** | ⚠️ **QUESTION THE SCOPE FIRST** — see below |
-| Slice 2c — mods | ✅ **UNBLOCKED** — data measured and present, see below |
+| Slice 2c — mods, **data half** | ✅ shipped — `socket-types.json` side table |
+| Slice 2c — mods, **solver half** | ⏭️ **NEXT.** Needs a capacity oracle; see below |
 
-**Test baseline: `292/292 passing, 43 files, 0 failing`.** Run `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`. Anything less is a regression — this session ended fully green with nothing in flight.
+**Test baseline: `331/331 passing, 45 files, 0 failing`.** Run `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`. Anything less is a regression — this session ended fully green with nothing in flight.
 
 **⚠️ The weapons cost tripwire is now `10,527`, not 10,842.** Legitimately re-measured after the ingest repair shrank the fragment pool (12 no-op placeholders removed ⇒ less real branching). Full history and the re-measure recipe are in `tests/solver/integration-weapons.test.ts`; the exotic marginal factor likewise moved 2.61x → **2.71x**.
 
@@ -40,27 +41,36 @@ unreachable today, rather than claimed load-bearing.
 
 ### ⏭️ NEXT — pick one; both are unblocked, and the artifact one needs a scope decision
 
-**A. Slice 2c — mods. UNBLOCKED; the twice-deferred data question is now MEASURED.**
-`DestinySocketTypeDefinition` is **already in `MANIFEST_TABLES`**, so no new fetch is needed —
-the prerequisite is a resolve-and-emit, much smaller than the handoff assumed. Measured on
-manifest `244213.26.06.29.2000-1-bnet.65583`:
-- **1874/1874** socket types carry a non-empty `plugWhitelist`, every one with at least one
-  `categoryIdentifier`.
-- **279/279** distinct `socketTypeHash`es appearing on armor resolve.
-- Armor mod sockets are clean and mostly single-category: `enhancements.v2_head` (2547 items),
-  `v2_arms` (2604), `v2_chest` (2544), `v2_legs` (2511), `v2_class_item` (2493); the general
-  socket (4557) accepts **two** — `enhancements.v2_general` and `enhancements.rivens_curse`.
-- **29 of 35** mod plugCategories are accepted by some armor socket. The 6 that are not are
-  all `ghosts_*` / `season_opulence` — **Ghost shell mods, not armor mods**. That is the
-  explanation for slice 2a's "196 mods stay `slotRestriction: undefined` on purpose".
+**A. Slice 2c — mods, SOLVER half. The data half is ✅ SHIPPED; this is the next build.**
+`data/socket-types.json` (279 entries) maps armour socket-type hash → accepted plug
+categories, reachable via `Lookup.socketCategories(hash)`. Paired with the existing
+`Armor.modSocketHashes`, that is everything a capacity oracle needs. **100% of the 25,828
+`modSocketHashes` references across all 6029 armour pieces resolve**, pinned by a contract
+floor — partial coverage here would not be a partial feature, it would be a wrong answer.
 
-**⚠️ This RETIRES THE BLOCKING PREMISE of the set-bonuses-vs-mods ordering question, but not
-the decision.** The question was deferred twice on the reasoning "mods need an ingest
-prerequisite set bonuses do not, so set-bonuses-first looks cheaper". That cost argument is
-now measured false. What remains is a product-priority call, which is the user's — ask, do not
-infer. Note the oracle itself is still **categorical, not nested**, so SP2's upward-closed
-Hall's-condition shortcut does NOT transfer (energy legality is deprecated, so capacity is
-about socket counts per category, not energy).
+**⚠️ The mods slice was never actually blocked.** `DestinySocketTypeDefinition` was already in
+`MANIFEST_TABLES`; the twice-deferred "we may not have the data" premise was simply never
+checked. Worth remembering as a pattern: two sessions deferred a slice on an unmeasured
+belief that one inspection script falsified.
+
+**What the oracle must respect (measured):**
+- Per-slot mod sockets are SINGLE-category: `enhancements.v2_head` / `v2_arms` / `v2_chest` /
+  `v2_legs` / `v2_class_item`. The GENERAL socket accepts **two** — `enhancements.v2_general`
+  and `enhancements.rivens_curse` — so the "one socket, one category" shortcut is wrong.
+- The structure is **categorical, NOT nested**, so SP2's upward-closed Hall's-condition
+  shortcut does **not** transfer: there is no "higher tier also accepts lower" ordering among
+  plug categories. Expect a genuine bipartite feasibility problem (mods → sockets), and
+  verify it against an independent matching reference exactly as SP2 did over all 2⁹ subsets.
+- **Mod energy legality is deprecated** (existing decision), so capacity is about socket
+  counts per category, not an energy budget. Do not reintroduce energy.
+- 29 of 35 mod plugCategories are socket-addressable; the 6 that are not are `ghosts_*` /
+  `season_opulence` (Ghost shell mods). This is ALSO the explanation for slice 2a's "196 mods
+  keep `slotRestriction: undefined` on purpose" — they are largely not armour mods at all.
+- `data/mods.json` still contains placeholder `Empty Mod Socket` entries. Placeholder
+  exclusion was deliberately scoped to aspects/fragments because the mod population was
+  unmeasured (a test pins that scope). **Measure it as part of this slice** — a solver
+  choosing mods must not "choose" an empty socket, which is exactly the bug the aspect/fragment
+  repair fixed.
 
 **B. Slice 3's artifact half — ⚠️ DO NOT BUILD IT WITHOUT ASKING.** The handoff has long
 scoped this as "solver-chosen artifact (all 7)". Inspecting what those 7 actually are:
