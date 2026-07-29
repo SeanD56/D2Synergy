@@ -94,18 +94,18 @@ describe("stateKey — aspect component", () => {
   // Byte-identity: every key written before this dimension existed had no aspect suffix,
   // so an empty selection must still produce exactly the old string.
   it("appends nothing when no aspect has been chosen", () => {
-    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], aspectHashes: [] }))
+    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], aspectHashes: [], mods: [] }))
       .toBe("frag:1|perk:2");
   });
 
   it("appends the sorted chosen aspects when present", () => {
-    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], aspectHashes: [9, 4] }))
+    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], aspectHashes: [9, 4], mods: [] }))
       .toBe("frag:1|perk:2|asp:4,9");
   });
 
   it("orders the aspect component after the exotic component", () => {
     const key = stateKey({
-      fragHashes: [], perkHashes: [], weapons: [], exoticHash: 55, aspectHashes: [7],
+      fragHashes: [], perkHashes: [], weapons: [], exoticHash: 55, aspectHashes: [7], mods: [],
     });
     expect(key).toBe("frag:|perk:|exo:55|asp:7");
   });
@@ -174,7 +174,7 @@ describe("aspect accounting — pinned plus chosen", () => {
     const env = buildSolverEnv(build({ classType: "warlock", aspectHashes: [1] }), ctx, {})!;
     // One pinned, one already chosen: the cap is met, so no aspect move may remain.
     const atCap = makeState(
-      env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [2] }, synergyUpperBound,
+      env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [2], mods: [] }, synergyUpperBound,
     );
     expect(atCap.selection.aspectHashes).toHaveLength(1);
     expect(kinds(atCap.candidates)).not.toContain("aspect");
@@ -194,17 +194,17 @@ describe("candidate generation — aspect moves", () => {
     const ctx = ctxWith([asp(1), asp(2), asp(3)]);
     const env = buildSolverEnv(build({ classType: "warlock" }), ctx, {})!;
 
-    const none = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [] }, synergyUpperBound);
+    const none = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [], mods: [] }, synergyUpperBound);
     expect(kinds(none.candidates)).toContain("aspect");
 
-    const full = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [1, 2] }, synergyUpperBound);
+    const full = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [1, 2], mods: [] }, synergyUpperBound);
     expect(kinds(full.candidates)).not.toContain("aspect");
   });
 
   it("never re-offers an already-chosen aspect", () => {
     const ctx = ctxWith([asp(1), asp(2), asp(3)]);
     const env = buildSolverEnv(build({ classType: "warlock" }), ctx, {})!;
-    const s = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [2] }, synergyUpperBound);
+    const s = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [2], mods: [] }, synergyUpperBound);
     const offered = s.candidates.filter((c) => c.kind === "aspect").map((c) => c.hash);
     expect(offered).toEqual([1, 3]);
   });
@@ -214,14 +214,14 @@ describe("the DYNAMIC fragment cap", () => {
   it("offers no fragment move until an aspect has granted a slot", () => {
     const ctx = ctxWith([asp(1), asp(2)], [frag(500)]);
     const env = buildSolverEnv(build({ classType: "warlock" }), ctx, {})!;
-    const root = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [] }, synergyUpperBound);
+    const root = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [], mods: [] }, synergyUpperBound);
     expect(kinds(root.candidates)).not.toContain("fragment");
   });
 
   it("grows the cap as aspects are added, unlocking fragment moves", () => {
     const ctx = ctxWith([asp(1, { fragmentSlots: 2 }), asp(2, { fragmentSlots: 3 })], [frag(500), frag(501)]);
     const env = buildSolverEnv(build({ classType: "warlock" }), ctx, {})!;
-    const oneAspect = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [1] }, synergyUpperBound);
+    const oneAspect = makeState(env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [1], mods: [] }, synergyUpperBound);
     expect(kinds(oneAspect.candidates)).toContain("fragment");
   });
 
@@ -272,7 +272,7 @@ describe("expand() — aspect forwarding", () => {
     // re-offering it, which is the whole point of this instrument.
     const parent = makeState(
       env,
-      { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [1, 2], exoticHash: exotic.hash },
+      { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [1, 2], mods: [], exoticHash: exotic.hash },
       synergyUpperBound,
     );
     expect(parent.candidates.map((c) => c.kind)).toEqual(["fragment"]);
@@ -290,7 +290,7 @@ describe("expand() — aspect forwarding", () => {
     // One aspect chosen (granting a slot) plus a fragment already taken, so an aspect move
     // must carry BOTH forward.
     const parent = makeState(
-      env, { fragHashes: [500], perkHashes: [], weapons: [], aspectHashes: [1] }, synergyUpperBound,
+      env, { fragHashes: [500], perkHashes: [], weapons: [], aspectHashes: [1], mods: [] }, synergyUpperBound,
     );
     const aspectKids = expand(parent, env, synergyUpperBound)
       .filter((k) => k.selection.aspectHashes.length === 2);
@@ -319,7 +319,7 @@ describe("synergyUpperBound — admissibility over the aspect dimension", () => 
 
     // Consumer fragment needs a slot, so pin one plain aspect; the second is still open.
     const s = makeState(
-      env, { fragHashes: [500], perkHashes: [], weapons: [], aspectHashes: [2] }, synergyUpperBound,
+      env, { fragHashes: [500], perkHashes: [], weapons: [], aspectHashes: [2], mods: [] }, synergyUpperBound,
     );
 
     // Derive the completion set from the state under test so a fixture change cannot

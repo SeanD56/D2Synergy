@@ -171,7 +171,7 @@ describe("synergyUpperBound — admissibility over the exotic dimension", () => 
     const ctx = ctxFor();
     const env = buildSolverEnv(pinnedBuild(), ctx, { beamWidth: 1 })!;
     // Consumer fragment chosen; exotic still open.
-    const s = makeState(env, { fragHashes: [401], perkHashes: [], weapons: [], aspectHashes: [] }, synergyUpperBound);
+    const s = makeState(env, { fragHashes: [401], perkHashes: [], weapons: [], aspectHashes: [], mods: [] }, synergyUpperBound);
     // Derive the completion set from the state under test rather than hard-coding it, so
     // adding a third exotic (or any other candidate kind) cannot silently shrink what this
     // gate covers. The explicit equality below then pins the fixture invariant loudly: if it

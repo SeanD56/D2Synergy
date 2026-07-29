@@ -1,8 +1,8 @@
-import type { Armor, ArtifactPerk, Aspect, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, ArmorSlot, ArtifactPerk, Aspect, Build, Fragment, Hash, KeywordTags, Mod, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
 import { EMPTY_TAGS } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
-import { buildCapacityModel, evaluateArtifactCapacity } from "@/lib/validation";
+import { buildCapacityModel, canonicalModCapacityModel, evaluateArtifactCapacity, type ModCapacityModel } from "@/lib/validation";
 
 import type { BuildElement, SynergyScore } from "@/lib/synergy";
 import { scoreSynergy } from "@/lib/synergy";
@@ -12,10 +12,12 @@ import {
   deriveFragmentPool,
   generateCandidates,
   type Candidate,
+  type ModPick,
   type WeaponPick,
 } from "./candidates";
 import { deriveExoticArmorPool, deriveExoticReach } from "./armor";
 import { ASPECT_CAP, deriveAspectPool, deriveAspectReach, fragmentSlotsFor } from "./subclass";
+import { deriveModPool, deriveModReach } from "./mods";
 import { neutralStatFit } from "./stat-fit";
 import type { BoundFn, Infeasibility, SolveOptions, SolverContext, StatFit } from "./types";
 import {
@@ -69,6 +71,15 @@ export interface SolverEnv {
   aspectReach: BuildElement[];
   /** Aspects pinned in the base build — the floor the solver's choices add to. */
   pinnedAspects: Hash[];
+  /**
+   * Per-armour-slot mod pool. `undefined` ⇒ the mod dimension is CLOSED, which is the default;
+   * it opens only via `SolveOptions.chooseMods` because mods have no natural opening pin.
+   */
+  modPool?: Map<ArmorSlot, Mod[]>;
+  /** Per-slot socket+energy capacity model, under the canonical Armor 3.0 layout. */
+  modCapacity?: Map<ArmorSlot, ModCapacityModel>;
+  /** Per-slot loose reachable-union for still-addable mods (open-slot bound). */
+  modReach?: Map<ArmorSlot, BuildElement[]>;
 }
 
 /**
@@ -98,6 +109,13 @@ export interface Selection {
    * byte-identical to every key written before this dimension existed.
    */
   aspectHashes: Hash[];
+  /**
+   * Mods the solver has placed, each with the armour SLOT it occupies. A flat hash list would be
+   * ambiguous: a general mod fits any slot's general socket, so the slot is part of the decision
+   * rather than derivable. Empty when the dimension is closed (it is opt-in), which keeps state
+   * keys byte-identical to every key written before it existed.
+   */
+  mods: ModPick[];
 }
 
 /** A partial build in the beam. `candidates` are its legal add-one-element moves. */
@@ -128,6 +146,15 @@ export function stateKey(selection: Selection): string {
   // wpn, exo, asp — because the key is compared as a string.
   if (selection.exoticHash !== undefined) key = `${key}|exo:${selection.exoticHash}`;
   if (selection.aspectHashes.length > 0) key = `${key}|asp:${s(selection.aspectHashes)}`;
+  if (selection.mods.length > 0) {
+    // Slot-qualified and sorted: the same mod on two slots is two distinct decisions, and order
+    // of placement is not part of a state's identity.
+    const mods = [...selection.mods]
+      .map((m) => `${m.slot}=${m.hash}`)
+      .sort()
+      .join(";");
+    key = `${key}|mod:${mods}`;
+  }
   return key;
 }
 
@@ -307,6 +334,30 @@ export function resolveSolverEnv(
     }
   }
 
+  // Mods. Opt-in only (`SolveOptions.chooseMods`): mods are always available, so unlike every
+  // other dimension nothing in the build naturally opens them, and defaulting to on would change
+  // the search for every existing build. Modelled PER SLOT against the canonical Armor 3.0 layout,
+  // which is what lets mods work at all given the solver never writes `armor.pieces`.
+  const ARMOR_SLOTS: ArmorSlot[] = ["helmet", "arms", "chest", "legs", "class"];
+  let modSurfaces: {
+    modPool?: Map<ArmorSlot, Mod[]>;
+    modCapacity?: Map<ArmorSlot, ModCapacityModel>;
+    modReach?: Map<ArmorSlot, BuildElement[]>;
+  } = {};
+  if (options.chooseMods === true) {
+    const modPool = new Map<ArmorSlot, Mod[]>();
+    const modCapacity = new Map<ArmorSlot, ModCapacityModel>();
+    const modReach = new Map<ArmorSlot, BuildElement[]>();
+    for (const slot of ARMOR_SLOTS) {
+      const pool = deriveModPool(ctx, slot);
+      if (pool.length === 0) continue;
+      modPool.set(slot, pool);
+      modCapacity.set(slot, canonicalModCapacityModel(slot));
+      modReach.set(slot, deriveModReach(pool));
+    }
+    if (modPool.size > 0) modSurfaces = { modPool, modCapacity, modReach };
+  }
+
   if (reasons.length > 0 || element === undefined || !artifact || !capModel) {
     return { env: null, reasons };
   }
@@ -332,6 +383,7 @@ export function resolveSolverEnv(
     aspectPool,
     aspectReach: deriveAspectReach(aspectPool),
     pinnedAspects,
+    ...modSurfaces,
   }, reasons };
 }
 
@@ -358,8 +410,11 @@ export function makeState(env: SolverEnv, selection: Selection, bound: BoundFn):
   const perk = [...selection.perkHashes].sort((a, b) => a - b);
   const { weapons: weaponPicks, exoticHash } = selection;
   const chosenAspects = [...selection.aspectHashes].sort((a, b) => a - b);
+  // Slot-then-hash ordering, so placement order is not part of a state's identity.
+  const modPicks = [...selection.mods].sort(
+    (a, b) => (a.slot < b.slot ? -1 : a.slot > b.slot ? 1 : a.hash - b.hash));
   const normalized: Selection = {
-    ...selection, fragHashes: frag, perkHashes: perk, aspectHashes: chosenAspects,
+    ...selection, fragHashes: frag, perkHashes: perk, aspectHashes: chosenAspects, mods: modPicks,
   };
   // Pinned aspects plus this state's choices. The solver's `Selection` carries ONLY its own
   // choices, so the two are concatenated here rather than stored merged — that keeps the
@@ -387,7 +442,15 @@ export function makeState(env: SolverEnv, selection: Selection, bound: BoundFn):
     ...env.base,
     subclass: { ...env.base.subclass, fragmentHashes: frag, aspectHashes: allAspects },
     // `?? env.base.armor.exoticHash` keeps a base-pinned exotic when this dimension is closed.
-    armor: { ...env.base.armor, exoticHash: exoticHash ?? env.base.armor.exoticHash },
+    armor: {
+      ...env.base.armor,
+      exoticHash: exoticHash ?? env.base.armor.exoticHash,
+      // `modHashes` is a FLAT list on the Build, so the per-slot assignment stays the solver's
+      // internal concern. Base-pinned mods are kept and the solver's picks appended.
+      modHashes: modPicks.length > 0
+        ? [...env.base.armor.modHashes, ...modPicks.map((m) => m.hash)]
+        : env.base.armor.modHashes,
+    },
     artifact: { ...env.base.artifact, selectedPerkHashes: perk },
     weapons,
   };
@@ -400,13 +463,14 @@ export function makeState(env: SolverEnv, selection: Selection, bound: BoundFn):
   // solver's own picks would offer ASPECT_CAP more on top of any pinned ones. The pool
   // already excludes pinned hashes, so the union cannot cause a duplicate offer.
   const candidates = generateCandidates(
-    { ...env, fragmentCap }, frag, perk, cap, weaponPicks, exoticHash, allAspects,
+    { ...env, fragmentCap }, frag, perk, cap, weaponPicks, exoticHash, allAspects, modPicks,
   );
   // Open-slot bound: augment the addable set with each not-yet-decided dimension's
   // precomputed reachable-union (candidates alone under-cover a dimension still open).
   const addable = candidates
     // weapon-, exotic- and aspect-selection tags are covered by their reach unions below
-    .filter((c) => c.kind !== "weapon" && c.kind !== "exoticArmor" && c.kind !== "aspect")
+    .filter((c) => c.kind !== "weapon" && c.kind !== "exoticArmor" && c.kind !== "aspect"
+      && c.kind !== "mod")
     .map((c) => c.element);
   for (const slot of env.openWeaponSlots) {
     if (!pickBySlot.has(slot)) addable.push(...(env.weaponReach.get(slot) ?? []));
@@ -414,6 +478,17 @@ export function makeState(env: SolverEnv, selection: Selection, bound: BoundFn):
   if (exoticHash === undefined && env.exoticPool.length > 0) addable.push(...env.exoticReach);
   if (allAspects.length < ASPECT_CAP && env.aspectPool.length > 0) {
     addable.push(...env.aspectReach);
+  }
+  // Per slot, credit the reach only while that slot can still take a mod: a slot whose sockets are
+  // full contributes nothing further, so the bound tightens as the build fills. Mod candidates are
+  // filtered OUT of `addable` above precisely because this covers them — dropping this push makes
+  // the bound ignore mods entirely and UNDER-estimate any mod-undecided state, which breaks the
+  // admissibility SP3a's pruning depends on.
+  if (env.modPool !== undefined) {
+    for (const [slot, model] of env.modCapacity ?? []) {
+      if (modPicks.filter((m) => m.slot === slot).length >= model.socketCount) continue;
+      addable.push(...(env.modReach?.get(slot) ?? []));
+    }
   }
   const priority = bound(build, addable, env.lookup);
   return { build, selection: normalized, cap, realized, candidates, priority,
@@ -439,7 +514,11 @@ export function expand(state: SolverState, env: SolverEnv, bound: BoundFn): Solv
     } else if (c.kind === "exoticArmor") {
       out.push(makeState(env, { ...sel, exoticHash: c.hash }, bound));
     } else if (c.kind === "aspect") {
-      out.push(makeState(env, { ...sel, aspectHashes: [...sel.aspectHashes, c.hash] }, bound));
+      out.push(makeState(env, { ...sel, aspectHashes: [...sel.aspectHashes, c.hash], mods: [] }, bound));
+    } else if (c.kind === "mod") {
+      out.push(makeState(env, {
+        ...sel, mods: [...sel.mods, { slot: c.armorSlot!, hash: c.hash }],
+      }, bound));
     } else if (c.kind === "weapon") {
       // Choose a weapon for slot c.slot. Eager ammo prune: skip if it makes the
       // no-double-Primary rule unsatisfiable across all decided weapons.
@@ -494,6 +573,14 @@ export function dimensionsAllDecided(state: SolverState, env: SolverEnv): boolea
       && env.pinnedAspects.length + state.selection.aspectHashes.length < ASPECT_CAP) {
     return false;
   }
+  // MODS DELIBERATELY HAVE NO CLAUSE — and this is the first dimension for which that is correct.
+  // Every other dimension is fill-to-cap (a game floor), so an undecided one is a dead end. Mods
+  // are not: four sockets exist but four mods at 3 energy is 12 > 11, so the energy budget usually
+  // binds first and a FULL mod set is often infeasible. Underfill is therefore legal, and a state
+  // that can add no further mod is MAXIMAL rather than incomplete. Since a mod never has a
+  // downside, maximal is optimal, so terminal-only routing stays correct without best-partial
+  // tracking. Add a clause here only if some future prune can delete mod moves the way the ammo
+  // prune deletes weapon moves.
   return true;
 }
 
@@ -536,6 +623,7 @@ export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
     perkHashes: env.base.artifact.selectedPerkHashes,
     weapons: [],
     aspectHashes: [],
+    mods: [],
   }, bound)];
   const completed: SolverState[] = [];
   // Global dedup: a build key seen in any round is never expanded again, even via

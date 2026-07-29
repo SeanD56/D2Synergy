@@ -33,6 +33,17 @@ export interface SolveOptions {
   statFit?: StatFit;
   /** Pruning bound. Default `synergyUpperBound`. Injected only in tests. */
   bound?: BoundFn;
+  /**
+   * Open the solver-chosen MOD dimension. Default **false**.
+   *
+   * Opt-in rather than always-on for two reasons. (1) Byte-compatibility: mods are always
+   * available — unlike every other dimension there is no pin or class that naturally opens
+   * them — so defaulting to on would change the search for every existing build. (2) Cost: it
+   * is the widest dimension in the solver (~50-80 mods per slot across 5 slots, against
+   * aspects' <=5 and exotics' 47) and it adds up to 20 moves of depth, so it must be
+   * measurable off-vs-on before anything relies on it.
+   */
+  chooseMods?: boolean;
 }
 
 /** One completed, ranked build with its "why". */

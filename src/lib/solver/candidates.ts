@@ -1,7 +1,7 @@
-import type { Armor, Artifact, ArtifactPerk, Aspect, Fragment, Hash, KeywordTags, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, ArmorSlot, Artifact, ArtifactPerk, Aspect, Fragment, Hash, KeywordTags, Mod, SubclassElement, WeaponSlot } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
-import { canAddArtifactPerk } from "@/lib/validation";
+import { canAddArtifactPerk, canAddMod, type ModCapacityModel } from "@/lib/validation";
 
 import type { BuildElement } from "@/lib/synergy";
 
@@ -10,6 +10,19 @@ import type { SolverContext } from "./types";
 import type { LegalWeapon } from "./weapons";
 
 const byHash = (a: { hash: Hash }, b: { hash: Hash }) => a.hash - b.hash;
+
+/**
+ * Resolve a placed mod hash back to what the capacity oracle needs. Falls back to a zero-cost
+ * unmatchable entry if the hash does not resolve, which makes the selection look INFEASIBLE
+ * rather than silently free — the conservative direction.
+ */
+function placeable(env: CandidateEnv, hash: Hash): { category: string; energyCost: number } {
+  for (const pool of env.modPool?.values() ?? []) {
+    const found = pool.find((m) => m.hash === hash);
+    if (found) return { category: found.plugCategory, energyCost: found.energyCost };
+  }
+  return { category: "\u0000unresolved", energyCost: 0 };
+}
 
 /** The pinned element's fragment pool: element items that resolve to fragments. */
 export function deriveFragmentPool(ctx: SolverContext, element: SubclassElement): Fragment[] {
@@ -43,16 +56,28 @@ export function deriveArtifactPerkPool(_ctx: SolverContext, artifact: Artifact):
 
 /** One legal move: add a fragment, artifact perk, weapon, or weapon plug to an open dimension. */
 export interface Candidate {
-  kind: "fragment" | "artifactPerk" | "weapon" | "weaponPerk" | "exoticArmor" | "aspect";
+  kind: "fragment" | "artifactPerk" | "weapon" | "weaponPerk" | "exoticArmor" | "aspect" | "mod";
   hash: Hash;
   /** Native (lowest) tier — present only for artifact perks (for canAdd). */
   nativeTier?: number;
   /** Weapon slot — present for "weapon" and "weaponPerk" moves. */
   slot?: WeaponSlot;
+  /**
+   * ARMOUR slot — present for "mod" moves. Deliberately a separate field from `slot`: conflating
+   * an armour slot with a weapon slot in one property would type-check but let a weapon branch
+   * silently consume a mod candidate.
+   */
+  armorSlot?: ArmorSlot;
   /** Target column socketIndex — present for "weaponPerk" moves. */
   column?: number;
   /** Resolved tagged element, for the optimistic bound. */
   element: BuildElement;
+}
+
+/** One mod the solver has placed, and the armour slot it occupies. */
+export interface ModPick {
+  slot: ArmorSlot;
+  hash: Hash;
 }
 
 /** A weapon being filled in an open slot: chosen weapon + plugs chosen so far. */
@@ -85,6 +110,13 @@ interface CandidateEnv {
    * Optional so the several test envs that predate this dimension still satisfy the type.
    */
   aspectPool?: Aspect[];
+  /**
+   * Per-armour-slot mod pool. ABSENT ⇒ the mod dimension is closed (it is opt-in via
+   * `SolveOptions.chooseMods`). Optional so envs predating this dimension still satisfy the type.
+   */
+  modPool?: Map<ArmorSlot, Mod[]>;
+  /** Per-slot capacity model, for the socket+energy feasibility gate. */
+  modCapacity?: Map<ArmorSlot, ModCapacityModel>;
 }
 
 /**
@@ -101,6 +133,7 @@ export function generateCandidates(
   weaponPicks: WeaponPick[],
   exoticHash?: Hash,
   aspectHashes: Hash[] = [],
+  modPicks: ModPick[] = [],
 ): Candidate[] {
   const chosenFrag = new Set(fragHashes);
   const chosenPerk = new Set(perkHashes);
@@ -140,6 +173,27 @@ export function generateCandidates(
     for (const a of env.exoticPool) {
       out.push({ kind: "exoticArmor", hash: a.hash,
         element: { hash: a.hash, source: `armor:${a.name}`, tags: a.tags } });
+    }
+  }
+
+  // Mods: one move per (armour slot, legal mod) still admissible under that slot's socket and
+  // energy budget. `canAddMod` is the gate, so a slot whose energy is spent stops offering moves
+  // and the state becomes terminal with FEWER mods than sockets — underfill is legal here, unlike
+  // every other dimension (see `dimensionsAllDecided`).
+  if (env.modPool !== undefined) {
+    for (const [armorSlot, pool] of env.modPool) {
+      const current = modPicks.filter((p) => p.slot === armorSlot);
+      const placed = current.map((p) => placeable(env, p.hash));
+      const model = env.modCapacity?.get(armorSlot);
+      if (!model) continue;
+      const chosenHere = new Set(current.map((p) => p.hash));
+      for (const m of pool) {
+        // A mod may be worn once per slot; the same mod on a different slot is a distinct move.
+        if (chosenHere.has(m.hash)) continue;
+        if (!canAddMod(model, placed, { category: m.plugCategory, energyCost: m.energyCost })) continue;
+        out.push({ kind: "mod", hash: m.hash, armorSlot,
+          element: { hash: m.hash, source: `mod:${m.name}`, tags: m.tags } });
+      }
     }
   }
 
