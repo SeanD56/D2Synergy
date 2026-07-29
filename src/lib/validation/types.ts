@@ -93,6 +93,14 @@ export interface Lookup {
    * "unknown socket" from "accepts nothing" (see `scripts/ingest/socket-types.ts`).
    */
   socketCategories(hash: Hash): string[] | undefined;
+  /**
+   * Every mod whose `plugCategory` equals `category`, hash-sorted. Empty when nothing matches.
+   *
+   * A LOOKUP rather than a dataset dump: the solver's mod pool asks "what fits this socket
+   * category?", which is exactly this question, and keeping it phrased that way preserves the
+   * seam's property that the solver never enumerates the dataset itself.
+   */
+  modsForCategory(category: string): Mod[];
   mod(hash: Hash): Mod | undefined;
   artifactPerk(hash: Hash): ArtifactPerk | undefined;
 }
