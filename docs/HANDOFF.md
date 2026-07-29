@@ -41,6 +41,77 @@ unreachable today, rather than claimed load-bearing.
 
 ### ⏭️ NEXT — pick one; both are unblocked, and the artifact one needs a scope decision
 
+### ⚡ MOD ENERGY IS LIVE — as a CONSTANT of 11, not per-item data (user, 2026-07-29)
+
+**Settled. Do not relitigate, and do not trust the older "deprecated" note in Future/parked.**
+
+`Armor` energy capacity depends on in-game UPGRADES, so it is player-progression state and
+never appears in the manifest definitions — measured: **0 of 6029 armour items carry an
+`energy` block**, which is why it looked deprecated. **All armour maxes out at 11**, and the
+user's decision is to **assume players have the resources to pin every piece at 11**.
+
+So the constraint IS real and the oracle needs it:
+- `Mod.energyCost` (measured: **305 of 512 mods cost 1-6**) is **LIVE data, not vestigial**.
+- Model capacity as a single constant — `ARMOR_ENERGY_CAPACITY = 11` — per armour piece. No
+  ingest change is needed for it, because it is not in the manifest to ingest.
+- **The mod oracle is therefore category-matching PLUS a per-piece budget**, not pure
+  matching: assign mods to sockets such that each mod's `plugCategory` is accepted by its
+  socket (`Lookup.socketCategories`) AND the per-piece sum of `energyCost` is ≤ 11. That is an
+  assignment problem with a capacity side-constraint — strictly harder than SP2's artifact
+  oracle, and another reason SP2's Hall's-condition shortcut does not transfer.
+
+**Why the record was confusing, so it does not recur:** Phase 0 decided "energy **affinity**
+ignored", which is still correct — elemental affinity was removed from the game. That is a
+DIFFERENT thing from energy **capacity**, and the two were conflated into a blanket
+"deprecated". Armor 3.0's `armor_archetypes` (Reaver/Powerhouse/Bulwark/Colossus),
+`armor_stats` and `armor_tiering` (`+Grenade / -Melee`) plugs carry **no** energy cost, and
+`DestinyStatDefinition` still *defines* five "Armor Energy Capacity" stats that no item uses —
+both are legacy shapes that make a stale reading look well-evidenced.
+
+### 🔎 DIM (MIT licensed — porting is fine WITH the copyright notice retained)
+
+Reviewed `DestinyItemManager/DIM` for reuse. **Port the mod-assignment layer, not the armour
+enumeration layer:**
+- **Armour enumeration** — 5 nested `for` loops + item **grouping** + runtime pruning, in a web
+  worker over struct-of-arrays `Int8Array`s. **Does not transfer well:** the grouping win
+  ("group 10 class items into two groups ⇒ 80% fewer combinations") assumes a modest OWNED
+  inventory. We search the dataset (5,681 legendary pieces), so that optimisation mostly
+  evaporates. This is a real argument for doing OAuth ownership (already a Phase-2 item)
+  BEFORE SP4, not after.
+- **Mod assignment (`fitMostMods`)** — DOES transfer; it operates on a fixed 5-piece set, which
+  is exactly slice 2c's shape. Brute-force permutations of general/activity mods, bucket-specific
+  mods assigned greedily via `plugFitsIntoSocket`, then validated on category **and** energy
+  (`isModEnergyValid`, `derivedCapacity`). Ranks candidates by unassigned-mod count → energy
+  upgrade cost → mod-change count. Note this independently corroborates that energy is a live
+  constraint. No complexity bound is documented; the permutation loop is the cost risk.
+- **Set bonuses** — DIM supports them, including a mechanic **we do not model at all**: a
+  `hasSetBonusModSocket` **wildcard** socket that lets one piece substitute for a missing piece
+  of a requested set. Any set-bonus work must account for it or it will over-report infeasibility.
+- **Worth copying as practice:** DIM keeps `process-baseline.ts` plus `process-parity.test.ts` —
+  a reference implementation with a parity test. That is the same pattern SP2 used (oracle vs
+  independent bipartite matching over all 2⁹ subsets), so it is independent validation of an
+  approach this repo already trusts. Do the same for the mod oracle.
+
+### 🎯 ARTIFACT PERKS ARE ALREADY SCOPED — the "solver-chosen artifact" idea is the separate thing
+
+Two distinct questions were being conflated in this file; both now have answers.
+
+**Already correct, and now GUARDED.** Artifact perks are tied to their own artifact:
+`deriveArtifactPerkPool(ctx, artifact)` walks only the pinned artifact's tiers, so the solver's
+perk space is one artifact's **21**, not the 138-perk union across all seven. Measured: the 7
+artifacts are near-disjoint (most pairs share 0 perks; a few share 1-4). This was previously
+covered only for cross-tier dedup — `tests/solver/artifact-scoping.test.ts` now pins the
+scoping itself, mutation-proven by simulating an ingest that unions every artifact's perks
+(2 of its 4 tests redden). **Note which 2:** the per-artifact "leak" assertions go VACUOUS in
+that scenario (if every artifact has the union, no perk is exclusive to another), so the
+anti-vacuity test is the one doing the work. Keep it.
+
+**⚠️ Still open, and NOT the same thing: `artifacts.json` has no season/current marker.** Its
+fields are only `hash/icon/kind/name/tiers`, so nothing identifies which of the 7 is the ACTIVE
+artifact. Anything that defaults the artifact (the UI especially) has no basis to choose, and
+a wrong default silently recommends perks the player cannot access. Decide how to source this
+before the UI needs a default.
+
 **A. Slice 2c — mods, SOLVER half. The data half is ✅ SHIPPED; this is the next build.**
 `data/socket-types.json` (279 entries) maps armour socket-type hash → accepted plug
 categories, reachable via `Lookup.socketCategories(hash)`. Paired with the existing
@@ -61,8 +132,8 @@ belief that one inspection script falsified.
   shortcut does **not** transfer: there is no "higher tier also accepts lower" ordering among
   plug categories. Expect a genuine bipartite feasibility problem (mods → sockets), and
   verify it against an independent matching reference exactly as SP2 did over all 2⁹ subsets.
-- **Mod energy legality is deprecated** (existing decision), so capacity is about socket
-  counts per category, not an energy budget. Do not reintroduce energy.
+- **Mod energy IS a live constraint, as the constant `ARMOR_ENERGY_CAPACITY = 11`** — see the
+  section above. Capacity is socket counts per category **AND** a per-piece energy budget.
 - 29 of 35 mod plugCategories are socket-addressable; the 6 that are not are `ghosts_*` /
   `season_opulence` (Ghost shell mods). This is ALSO the explanation for slice 2a's "196 mods
   keep `slotRestriction: undefined` on purpose" — they are largely not armour mods at all.
@@ -287,7 +358,7 @@ Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[
 - **SP3a parked follow-ups:** tighten the optimistic bound for beam efficiency (measured vs real builds); revisit `beamWidth`/`topN` defaults (16/5); incrementalize per-successor recompute in `makeState`; DRY the key-comparator across `beamSearch`/`solve`.
 - **SP4 — armor stat optimizer:** DIM-algorithm port in a web worker; fills the `StatFit` seam SP3a stubs. Explicitly delayable.
 - **Deferred Minors / follow-ups:** SP2 oracle Minors (parked for SP3, the real `canAdd` consumer): `socketsByTier` sparse-array `?? 0` read; `canAdd` silently clamps out-of-range `nativeTier`; `canAdd`'s `model` param currently unused. Older: `scripts/ingest/transform.ts` `AMMO` record allocated inside the weapon loop → hoist; `PerkConstraint.column` field defined but unused (reserved); `artifact.ts` `perkMembership` can emit `ARTIFACT_PERK_UNKNOWN` once per repeated occurrence of an unknown hash (cosmetic); Prismatic `elementConsistency` path has no explicit guard and no real-dataset test (likely holds because prismatic plugs tag as `"prismatic"`, but add a targeted test).
-- **Explicitly deferred (do NOT build now):** ~~champion/anti-barrier coverage~~ — **DONE in slice 2a** (`KeywordTags.championStuns`, 188 entities; the "text-only data, needs extraction pass" concern was the extraction pass slice 2a performed). Note the manifest currently has **zero** `/anti-barrier/` artifact perks, so any anti-barrier gate must key off `championStuns`, not perk names. Still deferred: **exotic class-item spirit pools** — **wanted, but POST-RELEASE, far down the line** (decided 2026-07-27; see the top of this file. The combos are arduous random-rolled farms most players ignore, and spirits are *partial* mimics, so their tags must never be derived from the original exotic's text); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); mod energy legality (deprecated); OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
+- **Explicitly deferred (do NOT build now):** ~~champion/anti-barrier coverage~~ — **DONE in slice 2a** (`KeywordTags.championStuns`, 188 entities; the "text-only data, needs extraction pass" concern was the extraction pass slice 2a performed). Note the manifest currently has **zero** `/anti-barrier/` artifact perks, so any anti-barrier gate must key off `championStuns`, not perk names. Still deferred: **exotic class-item spirit pools** — **wanted, but POST-RELEASE, far down the line** (decided 2026-07-27; see the top of this file. The combos are arduous random-rolled farms most players ignore, and spirits are *partial* mimics, so their tags must never be derived from the original exotic's text); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); ~~mod energy legality (deprecated)~~ — **WRONG, corrected 2026-07-29: energy capacity is LIVE as a constant 11; only energy AFFINITY is deprecated. See the mod-energy section at the top;** OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
 
 ## Decisions resolved (do not relitigate)
 - **`feasible` means "the solver produced at least one completed build", NOT "the pinned inputs are satisfiable" (slice 4).** *Why:* beam search is incomplete, so the solver cannot prove unsatisfiability. `NO_COMPLETION_FOUND` is therefore a statement about the SEARCH; all seven other reason codes are proofs about the INPUTS. Keep that split visible in the type docs — collapsing it would let the solver overclaim.
