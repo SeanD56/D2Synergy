@@ -1,5 +1,13 @@
 # SP3b slice 2b — Solver-chosen exotic armor Implementation Plan
 
+> ## ✅ COMPLETE — shipped to `main` as merge **`0dd31e9`** (2026-07-28), pushed.
+>
+> All 7 tasks executed via subagent-driven development, plus a whole-branch review (no Critical) and one final fix wave. Final state: **229/229 tests across 39 files**, tsc + eslint clean.
+>
+> **Do not read this plan as a record of what shipped — six of its instructions were wrong and were corrected during execution.** Two carried factually wrong test fixtures; one would have broken compilation (Task 3 adds a required field to `CandidateEnv` without accounting for `SolverEnv`, which is a sibling interface, not an extension); every line number in Task 4 was stale by the time it ran; and **Task 6's acceptance gate was structurally unprovable as specified** — that one is corrected in place below, with the reasoning. Its *measured* claims (pool sizes, tag divergence, costs) all held exactly. The corrected text is inline; `docs/HANDOFF.md` carries what actually shipped.
+>
+> **The finding most worth carrying forward:** `exoticReach` cannot be proven load-bearing by any outcome-based test, because the exotic dimension is single-stage and always selectable. It is pinned by an **admissibility property test** instead. Future single-stage dimensions need the same treatment — ask which kind a dimension is *before* writing its gate.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let the beam choose `armor.exoticHash` — one exotic armor piece from the build's Guardian-class pool, honouring a `useExotic` pin.
