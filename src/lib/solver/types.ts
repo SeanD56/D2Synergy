@@ -1,4 +1,4 @@
-import type { Build, Indexes } from "@/lib/types";
+import type { Build, Hash, Indexes, WeaponSlot } from "@/lib/types";
 
 import type { Lookup } from "@/lib/validation";
 
@@ -44,9 +44,46 @@ export interface RankedBuild {
   statFit: number;
 }
 
+/**
+ * Why a pinned build admits no completion. One code per distinct cause, so a UI can
+ * render "fix these three things" instead of a bare boolean.
+ *
+ * `NO_COMPLETION_FOUND` is the only SEARCH-level code — every other code is decided by
+ * `resolveSolverEnv` before the beam runs. Keep that distinction: env-level codes are
+ * proofs about the pinned inputs, while `NO_COMPLETION_FOUND` reports what the search
+ * actually produced (see its message).
+ */
+export type InfeasibilityCode =
+  | "SUBCLASS_ELEMENT_UNPINNED"
+  | "ARTIFACT_UNRESOLVED"
+  | "ARTIFACT_PERKS_OVER_CAPACITY"
+  | "FRAGMENTS_EXCEED_ASPECT_SLOTS"
+  | "WEAPON_SLOT_NO_LEGAL_ITEM"
+  | "EXOTIC_POOL_EMPTY"
+  | "EXOTIC_PIN_CONTRADICTS_PINNED_PIECE"
+  | "NO_COMPLETION_FOUND";
+
+/** One reason a build could not be completed. */
+export interface Infeasibility {
+  code: InfeasibilityCode;
+  /** Human-readable and UI-ready; carries the concrete numbers/names behind `code`. */
+  message: string;
+  /** The weapon slot at fault, when the cause is slot-scoped. */
+  slot?: WeaponSlot;
+  /** Entity hashes implicated — the over-capacity perks, the contradicting pin, … */
+  hashes?: Hash[];
+}
+
 export interface SolveResult {
   /** Top-N completed builds, best first. */
   builds: RankedBuild[];
-  /** False if the pinned inputs admit no completion at all. */
+  /**
+   * True iff the solver produced at least one completed build. Deliberately phrased as
+   * what happened rather than "the inputs are satisfiable": beam search is incomplete, so
+   * a `false` accompanied by `NO_COMPLETION_FOUND` is a statement about the search, not a
+   * proof of unsatisfiability. Every other reason code IS such a proof.
+   */
   feasible: boolean;
+  /** Why `feasible` is false. Empty exactly when `feasible` is true. */
+  reasons: Infeasibility[];
 }

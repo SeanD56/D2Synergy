@@ -87,9 +87,22 @@ describe.runIf(hasDataset)("solve — weapons slice (real data)", () => {
 
     // Ceiling: bounded by beamWidth x rounds x branching over the real dataset's
     // kinetic weapon pool (762 weapons in data/indexes.json). OBSERVED count on
-    // this dataset (deterministic across runs): 10,842 calls. Ceiling set at
-    // ~2.2x observed as generous headroom — the tripwire for the deferred
+    // this dataset (deterministic across runs): 10,527 calls. Ceiling set at
+    // ~2.4x observed as generous headroom — the tripwire for the deferred
     // tightened-bound follow-up (see docs/HANDOFF.md).
+    //
+    // ⚠️ RE-MEASURE THIS FIGURE, do not widen the ceiling, when a legitimate re-ingest
+    // changes the fragment/aspect/weapon pools. History, so a future reader can tell a
+    // real regression from an expected shift:
+    //   11,190  slice 1 as shipped
+    //   10,842  after slice 2a's plug-element dedup (unchanged by slice 2b + the
+    //           Selection refactor — that stability was the proof both were additive)
+    //   10,527  after the stasis + placeholder ingest repair, which removed 12 no-op
+    //           "Empty Fragment Socket" entries from the solar fragment pool and so
+    //           removed real branching. A DECREASE from a pool that genuinely shrank.
+    // Recipe: replace this assertion with `expect(calls).toBe(-1)`, run this file, read
+    // the count out of the failure message, restore. `grep` to confirm the edit applied
+    // before trusting any result.
     expect(calls).toBeLessThan(25_000);
   });
 });

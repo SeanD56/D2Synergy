@@ -59,7 +59,15 @@ describe("solve", () => {
   it("reports infeasible with no builds when the artifact is unresolved", () => {
     const bad = pinned();
     bad.artifact.artifactHash = 999;
-    expect(solve(bad, ctx)).toEqual({ builds: [], feasible: false });
+    const result = solve(bad, ctx);
+    expect(result.builds).toEqual([]);
+    expect(result.feasible).toBe(false);
+    // Slice 4: the bare boolean now comes with the cause, naming the offending hash.
+    expect(result.reasons).toEqual([{
+      code: "ARTIFACT_UNRESOLVED",
+      message: expect.stringContaining("999"),
+      hashes: [999],
+    }]);
   });
 
   it("keeps pre-pinned fragments/perks in the completed builds", () => {

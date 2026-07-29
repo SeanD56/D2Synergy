@@ -16,7 +16,7 @@ import {
 } from "./candidates";
 import { deriveExoticArmorPool, deriveExoticReach } from "./armor";
 import { neutralStatFit } from "./stat-fit";
-import type { BoundFn, SolveOptions, SolverContext, StatFit } from "./types";
+import type { BoundFn, Infeasibility, SolveOptions, SolverContext, StatFit } from "./types";
 import {
   deriveWeaponPool,
   deriveWeaponSlotReach,
@@ -111,30 +111,69 @@ export function stateKey(selection: Selection): string {
 }
 
 /**
- * Resolve the pinned inputs into a `SolverEnv`, or `null` if they admit no
- * completion at all (SP3a's feasibility = element pinned, artifact resolvable,
- * pinned perks within capacity, pinned fragments within the slot cap).
+ * Resolve the pinned inputs into a `SolverEnv`, or explain why they admit no completion
+ * (element pinned, artifact resolvable, pinned perks within capacity, pinned fragments
+ * within the slot cap, every open weapon slot satisfiable, exotic pins consistent).
+ *
+ * Every cause is ACCUMULATED rather than short-circuited, so a caller learns everything
+ * wrong with a build in one pass — two unsatisfiable weapon slots report two reasons, not
+ * the first one found. Checks that genuinely depend on an earlier result (artifact
+ * capacity needs a resolved artifact) are the only ones nested.
+ *
+ * `env` is non-null exactly when `reasons` is empty.
  */
-export function buildSolverEnv(
+export function resolveSolverEnv(
   base: Build,
   ctx: SolverContext,
   options: SolveOptions = {},
-): SolverEnv | null {
+): { env: SolverEnv | null; reasons: Infeasibility[] } {
+  const reasons: Infeasibility[] = [];
+
   const element = base.subclass.element;
-  if (element === undefined) return null;
+  if (element === undefined) {
+    reasons.push({
+      code: "SUBCLASS_ELEMENT_UNPINNED",
+      message: "No subclass element is pinned. The solver derives the fragment and aspect "
+        + "pools from the element, so it must be chosen before a build can be completed.",
+    });
+  }
 
   const artifactHash = base.artifact.artifactHash;
   const artifact = artifactHash === undefined ? undefined : ctx.lookup.artifact(artifactHash);
-  if (!artifact) return null;
-
-  const capModel = buildCapacityModel(artifact);
-  if (!evaluateArtifactCapacity(capModel, base.artifact.selectedPerkHashes).feasible) return null;
+  let capModel: CapacityModel | undefined;
+  if (!artifact) {
+    reasons.push({
+      code: "ARTIFACT_UNRESOLVED",
+      message: artifactHash === undefined
+        ? "No artifact is pinned, so the artifact-perk pool cannot be derived."
+        : `Artifact ${artifactHash} is not in the dataset, so its perk pool cannot be derived.`,
+      hashes: artifactHash === undefined ? undefined : [artifactHash],
+    });
+  } else {
+    capModel = buildCapacityModel(artifact);
+    const pinned = base.artifact.selectedPerkHashes;
+    if (!evaluateArtifactCapacity(capModel, pinned).feasible) {
+      reasons.push({
+        code: "ARTIFACT_PERKS_OVER_CAPACITY",
+        message: `The ${pinned.length} pinned artifact perk(s) cannot be placed in `
+          + `${artifact.name}'s sockets — they over-subscribe at least one tier threshold.`,
+        hashes: [...pinned],
+      });
+    }
+  }
 
   const fragmentCap = base.subclass.aspectHashes.reduce(
     (sum, h) => sum + (ctx.lookup.aspect(h)?.fragmentSlots ?? 0),
     0,
   );
-  if (base.subclass.fragmentHashes.length > fragmentCap) return null;
+  if (base.subclass.fragmentHashes.length > fragmentCap) {
+    reasons.push({
+      code: "FRAGMENTS_EXCEED_ASPECT_SLOTS",
+      message: `${base.subclass.fragmentHashes.length} fragment(s) are pinned but the chosen `
+        + `aspects grant only ${fragmentCap} fragment slot(s).`,
+      hashes: [...base.subclass.fragmentHashes],
+    });
+  }
 
   const openWeaponSlots: WeaponSlot[] = [];
   const weaponPool = new Map<WeaponSlot, LegalWeapon[]>();
@@ -143,7 +182,17 @@ export function buildSolverEnv(
     if (sel.itemHash !== undefined) continue; // pinned slot — not searched
     const pins: PerkConstraint[] = sel.perkConstraints;
     const pool = deriveWeaponPool(ctx, sel.slot, pins);
-    if (pool.length === 0) return null; // no weapon can satisfy this slot's pins
+    if (pool.length === 0) {
+      // Reported per slot, so a build with several bad slots names all of them.
+      reasons.push({
+        code: "WEAPON_SLOT_NO_LEGAL_ITEM",
+        message: pins.length === 0
+          ? `No weapon in the dataset fits the ${sel.slot} slot.`
+          : `No ${sel.slot} weapon can satisfy the ${pins.length} pinned perk constraint(s).`,
+        slot: sel.slot,
+      });
+      continue;
+    }
     openWeaponSlots.push(sel.slot);
     weaponPool.set(sel.slot, pool);
     weaponReach.set(sel.slot, deriveWeaponSlotReach(ctx, pool));
@@ -157,26 +206,49 @@ export function buildSolverEnv(
   // — AND we have either a Guardian class to filter by or a useExotic pin. Checking both
   // fields is what makes "non-empty pool ⇔ dimension open" true against the whole armor
   // model: without it, a user who pins an exotic *piece* gets a SECOND exotic chosen here.
-  // (A useExotic pin alongside an exotic piece therefore closes the dimension rather than
-  // producing two exotics; slice 4's infeasibility explanation is where that gets voiced.)
   let pinnedExotic: Hash | undefined;
   for (const c of base.constraints) {
     if (c.kind === "useExotic") pinnedExotic = c.itemHash;
   }
-  const pieceExotic = base.armor.pieces.some(
+  const exoticPiece = base.armor.pieces.find(
     (p) => p.itemHash !== undefined && ctx.lookup.armor(p.itemHash)?.tier === "exotic",
   );
   const classType = base.subclass.classType;
   let exoticPool: Armor[] = [];
-  if (base.armor.exoticHash === undefined && !pieceExotic
+  if (exoticPiece !== undefined && pinnedExotic !== undefined
+      && pinnedExotic !== exoticPiece.itemHash) {
+    // A pin naming a different exotic than the one already equipped as a piece. Closing
+    // this was deferred out of slice 2b: the dimension is closed by the piece, so pool
+    // derivation never ran and the empty-pool path below could not catch it — `solve`
+    // returned feasible with builds silently ignoring the pin.
+    const want = ctx.lookup.armor(pinnedExotic)?.name ?? `exotic ${pinnedExotic}`;
+    const have = ctx.lookup.armor(exoticPiece.itemHash!)?.name ?? `exotic ${exoticPiece.itemHash}`;
+    reasons.push({
+      code: "EXOTIC_PIN_CONTRADICTS_PINNED_PIECE",
+      message: `The build pins ${want} via a useExotic constraint, but its ${exoticPiece.slot} `
+        + `slot already holds the exotic ${have}. A build may hold only one exotic armor piece.`,
+      hashes: [pinnedExotic, exoticPiece.itemHash!],
+    });
+  } else if (base.armor.exoticHash === undefined && exoticPiece === undefined
       && (classType !== undefined || pinnedExotic !== undefined)) {
     exoticPool = deriveExoticArmorPool(ctx, classType, pinnedExotic);
-    // Pin contradicts the class, or names a hash absent from the dataset. Slice 4 will
-    // explain WHICH; here it is simply infeasible.
-    if (exoticPool.length === 0) return null;
+    if (exoticPool.length === 0) {
+      reasons.push({
+        code: "EXOTIC_POOL_EMPTY",
+        message: pinnedExotic === undefined
+          ? `No exotic armor in the dataset matches the ${classType} class.`
+          : `The pinned exotic ${pinnedExotic} is either absent from the dataset or does not `
+            + `belong to the ${classType ?? "chosen"} class.`,
+        hashes: pinnedExotic === undefined ? undefined : [pinnedExotic],
+      });
+    }
   }
 
-  return {
+  if (reasons.length > 0 || element === undefined || !artifact || !capModel) {
+    return { env: null, reasons };
+  }
+
+  return { env: {
     ctx,
     lookup: ctx.lookup,
     base,
@@ -194,7 +266,22 @@ export function buildSolverEnv(
     resolvePlugTags,
     exoticPool,
     exoticReach: deriveExoticReach(exoticPool),
-  };
+  }, reasons };
+}
+
+/**
+ * The env alone, or `null` when the pinned inputs admit no completion.
+ *
+ * A thin projection of `resolveSolverEnv` — the single source of truth for feasibility —
+ * kept because most callers (and every beam-level test) only need "can we search?". Use
+ * `resolveSolverEnv` when you need to tell the user WHY not.
+ */
+export function buildSolverEnv(
+  base: Build,
+  ctx: SolverContext,
+  options: SolveOptions = {},
+): SolverEnv | null {
+  return resolveSolverEnv(base, ctx, options).env;
 }
 
 /** Build a fully-derived state from an open-dimension selection. */
