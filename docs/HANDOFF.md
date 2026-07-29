@@ -15,9 +15,10 @@
 | Slice 3 — solver-chosen **aspects** | ✅ shipped, merge `7eedef4` |
 | Slice 3 — solver-chosen **artifact** | ⚠️ **QUESTION THE SCOPE FIRST** — see below |
 | Slice 2c — mods, **data half** | ✅ shipped — `socket-types.json` side table |
-| Slice 2c — mods, **solver half** | ⏭️ **NEXT.** Needs a capacity oracle; see below |
+| Slice 2c — mods, **capacity oracle** | ✅ shipped — exact matching + energy budget |
+| Slice 2c — mods, **solver dimension** | ⏭️ **NEXT** — but see the open design fork below |
 
-**Test baseline: `331/331 passing, 45 files, 0 failing`.** Run `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`. Anything less is a regression — this session ended fully green with nothing in flight.
+**Test baseline: `357/357 passing, 47 files, 0 failing`.** Run `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`. Anything less is a regression — this session ended fully green with nothing in flight.
 
 **⚠️ The weapons cost tripwire is now `10,527`, not 10,842.** Legitimately re-measured after the ingest repair shrank the fragment pool (12 no-op placeholders removed ⇒ less real branching). Full history and the re-measure recipe are in `tests/solver/integration-weapons.test.ts`; the exotic marginal factor likewise moved 2.61x → **2.71x**.
 
@@ -40,6 +41,86 @@ Both remaining terminal clauses (exotic, aspect) are now honestly documented as 
 unreachable today, rather than claimed load-bearing.
 
 ### ⏭️ NEXT — pick one; both are unblocked, and the artifact one needs a scope decision
+
+### ⚠️ OPEN DESIGN FORK — mods need pieces, and the solver never chooses pieces
+
+Surfaced while building the oracle; **resolve this before starting the mod solver dimension.**
+
+Mods are worn ON armour pieces, and the oracle is correctly per-piece. But the solver writes only
+`armor.exoticHash` and **never writes `armor.pieces`** (slice-2b decision: picking the other four
+is SP4's job). So a mod dimension has no pieces to attach mods to.
+
+Measured, which makes one option viable: the mod-socket layout is **near-uniform per slot**. The
+dominant layout for every slot is **1 masterwork + 1 general + 3 slot-specific** (471-507 pieces
+per slot), though there is a long tail (23-32 distinct layouts per slot, including ~100 pieces per
+slot carrying only two sockets). So a canonical per-slot layout is a defensible approximation, but
+it is an APPROXIMATION and would over-state capacity for the tail.
+
+Three ways forward, in rough order of honesty:
+1. **Defer the mod dimension until SP4 fills `pieces`.** Cleanest and no approximation, but it
+   makes mods depend on the largest remaining sub-project.
+2. **Model mods per SLOT against the canonical Armor-3.0 layout**, and re-validate exactly once
+   pieces exist. Ships value now; must be labelled as assuming a canonical layout, or it will be
+   read as exact. Pairs naturally with the prescription approach — prescribing "a legs piece with
+   3 legs-mod sockets" is the same kind of claim as prescribing a stat roll.
+3. **Have the solver choose pieces too.** Rejected already for stat reasons in slice 2b (non-exotic
+   armour is 2.17% tagged) and it duplicates SP4.
+
+Given decision (3) in the architecture section — prescription rather than piece search — **option 2
+is the natural fit**, because prescribing a socket layout is the same shape of claim as prescribing
+a stat distribution. But it is a real modelling choice with a user-visible consequence, so it is
+recorded here rather than assumed.
+
+### 🏛️ ARMOUR ARCHITECTURE — decided 2026-07-29 (user). Read before SP4 or any armour work.
+
+**1. Prune to ARMOR 3.0 only.** It is the only effectively usable/interesting armour. Measured:
+**999 pieces carry the `armor_tiering` socket** — 858 legendary + 141 exotic, spread evenly by
+slot (177-215 each) — against 6029 total. Identify them by that socket (`armor_tiering` in the
+socket-type side table); the `armor_tiering` socket is present on exactly those 999 and there is
+no overlap with any bare-`mods` socket family. **⚠️ Consequence to expect: the exotic pool
+shrinks.** Slice 2b derives 47 exotics/class after name-dedup from all 348; restricting to the
+141 Armor-3.0 exotics will cut that, and slice 2b's measured pool figure and marginal-cost
+ratios will need re-measuring when this lands.
+
+**2. Total stat distribution is the only thing that matters (confirmed).** So the stat model is a
+DP over the stat-sum vector across 5 slots, NOT an enumeration of per-slot profiles. This is what
+makes prescription structurally cheaper than piece search: enumerating profiles would be
+`6P3 × 2 = 240` per slot and `240^5 ≈ 8×10^11` across five — worse than searching 5,681 pieces.
+The win comes from summing, plus archetypes constraining which profiles exist at all.
+
+**3. GLOBAL PRESCRIPTION, with OAuth as a PRESENTATION layer (agreed).** The solver searches the
+dataset and prescribes a target stat distribution ("get a piece rolling X/Y/Z"); owned-gear data
+is then used to annotate the prescription — "you own this / farm this / this piece is 5 points
+off". Auth stays OUT of the search loop, so the solver remains deterministic, cacheable and
+testable. **This RETRACTS an earlier suggestion in this file to do OAuth before SP4** — that was
+premised on porting DIM's armour enumeration, whose item-grouping win needs a modest owned
+inventory. Under prescription we do not port that layer, so OAuth becomes an enhancement rather
+than a prerequisite.
+
+**4. Masterworking and artifice: assume they are USED.** Split by concern —
+- **Artifice needs NO oracle work; it already works.** Measured: 9 mods carry
+  `enhancements.artifice` (`Health Forged`, `Class Forged`, `Grenade Forged`, ...) at
+  **`energyCost: 0`**, and 7 socket types accept the category across 288 pieces. So an artifice
+  socket adds PLACEMENT capacity without spending any of the 11-point budget — and because the
+  oracle matches on categories rather than hard-coding families, that falls out for free. Pinned
+  by tests in `tests/validation/mod-capacity.test.ts`.
+- **Masterwork is already baked into the energy assumption.** Masterwork sockets are on
+  5638/6029 pieces, and masterworked ⇒ full energy, which is exactly the
+  `ARMOR_ENERGY_CAPACITY = 11` assumption. Nothing further needed for feasibility.
+- **Their STAT contributions are SP4 work, deliberately deferred** (artifice +3 to a chosen stat;
+  masterwork stat bonus). **⚠️ THE REAL PREREQUISITE IS BIGGER THAN EITHER: we do not ingest
+  armour stats at all.** `Armor` carries `statGroupHash` on all 6029 pieces but no stat VALUES.
+  Any stat prescription needs that ingested first — and the exact masterwork/artifice increments
+  should be confirmed against a current external source, since they are balance numbers rather
+  than manifest structure.
+
+**⚠️ STILL UNMEASURED, and it decides SP4's shape: the ARCHETYPE stat pairings.** Armor 3.0
+archetype plugs exist (`Reaver`, `Powerhouse`, `Bulwark`, `Colossus`, ...) but I have not measured
+how many archetypes there are or whether each fixes the primary/secondary stat pairing. If it
+does, the real per-slot profile space is ~6-12 rather than 240, which is what makes prescription
+cheap. **Measure this first when SP4 starts.** Note also that `Armor.modSocketHashes` does NOT
+include the archetype socket (0 of 6029, though the manifest has 999), so the archetype must be
+read from the manifest or added to the ingest.
 
 ### ⚡ MOD ENERGY IS LIVE — as a CONSTANT of 11, not per-item data (user, 2026-07-29)
 

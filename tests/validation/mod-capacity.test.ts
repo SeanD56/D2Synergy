@@ -150,6 +150,44 @@ describe("evaluateModCapacity — energy budget", () => {
   });
 });
 
+/**
+ * ARTIFICE needs no special case, and this pins that rather than assuming it.
+ *
+ * Measured: 9 mods carry `enhancements.artifice` (Health/Class/Grenade Forged, ...) with
+ * `energyCost: 0`, and 7 socket types accept the category across 288 of 6029 armour pieces. So
+ * an artifice socket adds PLACEMENT capacity without consuming any of the 11-point budget.
+ * Because matching is category-driven rather than hard-coded per family, that behaviour already
+ * falls out of the general algorithm.
+ *
+ * The artifice STAT contribution (+3 to a chosen stat) is deliberately NOT modelled here — that
+ * belongs with SP4's stat work, which needs armour stats ingested (currently none are).
+ */
+describe("artifice sockets", () => {
+  const CAT_ARTIFICE = "enhancements.artifice";
+
+  it("places an artifice mod in an artifice socket", () => {
+    const model = buildModCapacityModel([socket(CAT_HEAD), socket(CAT_ARTIFICE)]);
+    expect(evaluateModCapacity(model, [mod(CAT_ARTIFICE, 0)]).feasible).toBe(true);
+  });
+
+  it("does not let an artifice mod occupy a non-artifice socket", () => {
+    const model = buildModCapacityModel([socket(CAT_HEAD)]);
+    expect(evaluateModCapacity(model, [mod(CAT_ARTIFICE, 0)]).feasible).toBe(false);
+  });
+
+  it("adds capacity without spending energy, so a full budget still admits it", () => {
+    // Budget already exhausted by the slot mods; the zero-cost artifice mod must still fit.
+    const model = buildModCapacityModel([
+      socket(CAT_HEAD), socket(CAT_HEAD), socket(CAT_ARTIFICE),
+    ]);
+    const result = evaluateModCapacity(model, [
+      mod(CAT_HEAD, 6), mod(CAT_HEAD, 5), mod(CAT_ARTIFICE, 0),
+    ]);
+    expect(result.energyUsed).toBe(ARMOR_ENERGY_CAPACITY);
+    expect(result.feasible).toBe(true);
+  });
+});
+
 describe("canAddMod — incremental prune", () => {
   it("permits an addition that stays feasible", () => {
     const model = buildModCapacityModel([socket(CAT_HEAD), socket(CAT_GENERAL)]);
