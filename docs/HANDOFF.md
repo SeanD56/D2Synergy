@@ -30,6 +30,10 @@ empty working tree.
 - Exotic open/closed marginal factor: **2,446 → 6,643 = 2.72x**, pool 47/class.
 - Aspect open/closed marginal factor: **8,049 → 6,643 = 1.21x**.
 
+**🎯 The user specified a four-feature ROADMAP on 2026-07-29 — see "Feature roadmap" below:**
+Armor Charge → ability uptime → a healing floor → preferred exotics/weapons. Read it before planning
+any work beyond the set-bonus dimension; dependency order differs from the stated priority order.
+
 ## Doc pointers
 
 **`docs/HANDOFF.md` (this file) is the source of truth for EXECUTION** of slice 2c — there is no
@@ -561,6 +565,72 @@ Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[
 - **SP4 — armor stat optimizer:** DIM-algorithm port in a web worker; fills the `StatFit` seam SP3a stubs. Explicitly delayable.
 - **Deferred Minors / follow-ups:** SP2 oracle Minors (parked for SP3, the real `canAdd` consumer): `socketsByTier` sparse-array `?? 0` read; `canAdd` silently clamps out-of-range `nativeTier`; `canAdd`'s `model` param currently unused. Older: `scripts/ingest/transform.ts` `AMMO` record allocated inside the weapon loop → hoist; `PerkConstraint.column` field defined but unused (reserved); `artifact.ts` `perkMembership` can emit `ARTIFACT_PERK_UNKNOWN` once per repeated occurrence of an unknown hash (cosmetic); Prismatic `elementConsistency` path has no explicit guard and no real-dataset test (likely holds because prismatic plugs tag as `"prismatic"`, but add a targeted test).
 - **Explicitly deferred (do NOT build now):** ~~champion/anti-barrier coverage~~ — **DONE in slice 2a** (`KeywordTags.championStuns`, 188 entities; the "text-only data, needs extraction pass" concern was the extraction pass slice 2a performed). Note the manifest currently has **zero** `/anti-barrier/` artifact perks, so any anti-barrier gate must key off `championStuns`, not perk names. Still deferred: **exotic class-item spirit pools** — **wanted, but POST-RELEASE, far down the line** (decided 2026-07-27; see the top of this file. The combos are arduous random-rolled farms most players ignore, and spirits are *partial* mimics, so their tags must never be derived from the original exotic's text); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); ~~mod energy legality (deprecated)~~ — **WRONG, corrected 2026-07-29: energy capacity is LIVE as a constant 11; only energy AFFINITY is deprecated. See the mod-energy section at the top;** OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
+
+## 🎯 FEATURE ROADMAP — specified by the user 2026-07-29, in the user's priority order
+
+Four features to tie in. The user's ORDER is below; note that **dependency order differs from
+priority order** — F3 and F4 are unblocked today, F1 needs a re-ingest, and F2 is gated behind SP4.
+Each entry records what is already measured, so none of this gets re-derived.
+
+### F1 — Armor Charge (user: "massive for builds; controls a lot of subclass interactions")
+
+**State: the engine is BLIND to it.** `armor_charge` is absent from the 33-entry vocabulary
+(`KEYWORD_VOCABULARY` + `TRIGGER_VOCABULARY` in `scripts/ingest/keywords.ts`), and **56 perks whose
+text mentions "armor charge" are untagged**. Same slice as the `void_breach` gap (26 perks) found
+while designing set bonuses — see
+`docs/superpowers/specs/2026-07-29-phase2-sp3b-set-bonus-dimension-design.md`.
+
+**⚠️ Mod coverage is UNMEASURED, not zero.** `data/mods.json` carries **no `description` field**
+(keys: `energyCost/hash/icon/kind/name/plugCategory/slotRestriction/tags`), so any text scan of the
+emitted mod data returns 0 **vacuously**. The tagger runs on MANIFEST text during ingest, so a
+vocabulary addition would tag mods too — measure against the manifest, never against `data/mods.json`.
+
+**⚠️ Decide before building whether STACKS matter.** Armor Charge is a stacking resource with gain,
+spend and cap mechanics. The synergy model is producer→consumer over keywords, which can express
+"produces armor_charge" / "consumes armor_charge" but models no stack count or cap. If stack depth
+drives the interactions the user cares about, this needs more than a vocabulary entry.
+
+**Prerequisite:** the vocabulary/ingest slice. Cheap, but it is a re-ingest, so follow the ingest
+repair's discipline — mutation-proven discriminators and simulated contract floors.
+
+### F2 — Ability damage / uptime (user: "synergy doesn't matter if uptime is low")
+
+A **ranking-model** change rather than a new solver dimension: it re-weights or gates builds by how
+often their abilities are actually available.
+
+**⚠️ THIS IS THE ONE ITEM WITH A HARD BLOCKING PREREQUISITE — it must come after SP4.** Armor 3.0
+ability regeneration is driven by the grenade/melee/super/class stats, and **we do not ingest armour
+stat values at all** (`statGroupHash` is on all 6029 pieces; all 3,996 Armor 3.0 `investmentStats`
+values measured 0). Uptime is not computable before SP4 fills that in.
+
+It also needs base cooldown values, which are balance numbers absent from the manifest — so it
+inherits SP4's citation discipline: cite and date each source in code, and treat anything not
+corroborated twice as unknown rather than guessed.
+
+### F3 — A healing floor (user: every build should have healing beyond base regeneration)
+
+**State: the keywords already exist.** `cure`, `restoration` and `devour` are all in the vocabulary
+today, so this needs **no ingest work** for the subclass side. **Unblocked — buildable now.**
+
+**Measure first:** the user names weapon perks such as **Heal Clip** as a common enabler. Weapon plug
+tags come through `data/plug-tags.json` and the plug-NAME bridge, so confirm Heal Clip and its
+relatives actually tag as `cure`/`restoration` before designing around them.
+
+**Recommended shape:** a `Constraint` kind plus an env check, NOT a hidden global rule or a scoring
+fudge. A build with no healing source then fails with an explicit slice-4 reason code, which is
+honest and opt-in, instead of silently reranking. Weigh "reject" vs "penalise" with the user.
+
+### F4 — Preferred exotics / weapon types (user: tuning step, do last; expects big output impact)
+
+**This maps onto an EXISTING, WIRED, EMPTY seam — it is the cheapest of the four.**
+`CURATED_OVERLAY` (`src/lib/synergy/weights.ts:17`) is `[]` and is already consumed by both
+`score.ts` and `bound.ts:74`. Authoring entries is already a parked SP1 follow-up.
+
+**The user's expectation that this will not touch the solver/process is CORRECT, and there is a
+reason:** `bound.ts` already iterates the overlay, so a positive overlay entry raises the optimistic
+bound alongside the realized score and admissibility survives. **Verify that with a test when
+authoring** — an overlay that lifts realized scores without lifting the bound would break
+admissibility silently, which is exactly the failure class this repo keeps catching.
 
 ## Decisions resolved (do not relitigate)
 - **Next order of work: UI names FIRST, then set bonuses (user, 2026-07-29).** *Why:* the recommender already runs end-to-end but prints raw hashes, so name resolution is the smallest change with the largest visible payoff and needs no design decisions; set bonuses then follow with their semantics settled.
