@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 398/398 green. Slice 2c is COMPLETE and optimised (11.73x -> 5.37x). NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
+**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 401/401 green. Slice 2c is COMPLETE and optimised (11.73x -> 5.37x); the current-artifact blocker is RESOLVED. NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
 
 | Unit | Status |
 | --- | --- |
@@ -20,7 +20,7 @@
 | Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `398/398 passing, 51 files, 0 failing`.** Run:
+**Test baseline: `401/401 passing, 51 files, 0 failing`.** Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -459,10 +459,10 @@ Adds **one open dimension** to the beam: the solver now chooses `armor.exoticHas
 ## Future / parked — SP3b slices 2c-4, in order
 
 **Open items surfaced this session — not blockers for slice 2c, but do not re-litigate them from scratch:**
-- **`artifacts.json` has no active-season marker.** Fields are only `hash/icon/kind/name/tiers`, so nothing identifies which of the 7 is live. A wrong default recommends inaccessible perks, so the UI cannot pick one until this is sourced. Needs a decision on where the fact comes from (manifest field not yet found, external source, or user selection).
+- ~~**`artifacts.json` has no active-season marker.**~~ ✅ **RESOLVED** — `DatasetMeta.currentArtifactHash` + `Lookup.currentArtifact()`. The key was already in the repo unused: three comments noted that `DestinyArtifactDefinition` "returns only the current one" as a reason not to source artifacts from it. It holds exactly one entry but in a DISJOINT hash namespace (2894222926 vs our 23349941), so it bridges by NAME — the same shape as slice 1's weapon plugs. Three mutation-proven contract floors guard it.
 - **Set bonuses remain blocked on `armor.pieces`**, which the solver never writes. Additionally, DIM models — and our own data confirms — a **set-bonus SELECTOR socket** (`selectors`, on 3 exotic class items) that lets one piece wildcard a missing set piece. Ignoring it would over-report infeasibility.
 - **SP4 / stat prescription needs armour STAT VALUES ingested.** `Armor` carries `statGroupHash` on all 6029 pieces but no values. **The decisive unmeasured number: do Armor 3.0 archetypes fix the primary/secondary stat pairing?** If so the per-slot profile space is ~6-12 rather than 240, which is what makes prescription cheap. Note the archetype socket is absent from `Armor.modSocketHashes` (0 of 6029, though the manifest has 999), so it must be read from the manifest or added to the ingest.
-- **UI is unstarted.** Next.js + React was requested; `AGENTS.md` requires reading `node_modules/next/dist/docs/` before writing any Next.js code, since this version has breaking changes vs training data. Blocked in practice on the artifact-default question above for any build-editor default.
+- **UI is unstarted.** Next.js + React was requested; `AGENTS.md` requires reading `node_modules/next/dist/docs/` before writing any Next.js code, since this version has breaking changes vs training data. **No longer blocked** — the artifact default now comes from `Lookup.currentArtifact()`.
 - **`Armor.modSocketHashes` is a PARTIAL socket view** — general/slot-specific/masterwork but not the archetype socket. Do not treat it as an item's complete socket set.
 
 **0. Wire the aspect dimension** — see "NEXT TASK" at the top. The `Selection` refactor and slice 4 are both ✅ shipped; the aspect helpers exist and are tested but are not wired.
