@@ -25,7 +25,7 @@
  * other, so there is nothing to be upward-closed about.)
  */
 
-import type { Hash } from "@/lib/types";
+import type { ArmorSlot, Hash } from "@/lib/types";
 
 /**
  * Armour energy capacity, as a constant.
@@ -186,4 +186,60 @@ export function modCapacityModelForPiece(
     sockets.push({ categories: [...categories] });
   }
   return buildModCapacityModel(sockets);
+}
+
+/**
+ * The GENERAL armour mod socket's accepted categories, measured: it is the only armour mod
+ * socket accepting more than one, and it is what makes real bipartite matching necessary.
+ */
+export const GENERAL_MOD_CATEGORIES = [
+  "enhancements.v2_general",
+  "enhancements.rivens_curse",
+] as const;
+
+/** Slot-specific mod category per armour slot, measured from the socket-type side table. */
+const SLOT_MOD_CATEGORY: Record<ArmorSlot, string> = {
+  helmet: "enhancements.v2_head",
+  arms: "enhancements.v2_arms",
+  chest: "enhancements.v2_chest",
+  legs: "enhancements.v2_legs",
+  class: "enhancements.v2_class_item",
+};
+
+/** Slot-specific mod sockets per piece in the canonical Armor 3.0 layout. */
+export const SLOT_SPECIFIC_SOCKET_COUNT = 3;
+
+/**
+ * The canonical Armor 3.0 mod-socket layout for a slot: ONE general socket plus
+ * `SLOT_SPECIFIC_SOCKET_COUNT` slot-specific sockets.
+ *
+ * **MEASURED, and exact for everything in scope.** Of the 999 Armor 3.0 pieces (identified by the
+ * `armor_tiering` socket), **990 match this layout exactly** — helmet 204/204, chest 203/203,
+ * legs 200/200, arms 212/215, class 171/177. All 9 exceptions are pieces the project has already
+ * put out of scope:
+ *  - 3 arms carrying an extra `aeon_cult` socket — the Aeon exotics, whose trait ships as a mod.
+ *  - 3 class items carrying an `exotic` socket and 3 carrying a `selectors` socket — the exotic
+ *    class items (deferred post-release), where `selectors` is the SET BONUS selector socket that
+ *    lets a piece wildcard a missing set piece.
+ *
+ * So modelling mods per SLOT rather than per PIECE is exact here, not an approximation — which is
+ * what lets the solver reason about mods without choosing armour pieces (it writes only
+ * `armor.exoticHash`, never `armor.pieces`).
+ *
+ * ⚠️ Masterwork and the `armor_tiering` tuning socket are deliberately EXCLUDED: neither takes a
+ * mod from `data/mods.json`. Artifice is excluded too — only 288 of 6029 pieces have one, so it is
+ * not canonical; pass a piece's real sockets when artifice matters.
+ */
+export function canonicalArmorModLayout(slot: ArmorSlot): ModSocket[] {
+  return [
+    { categories: [...GENERAL_MOD_CATEGORIES] },
+    ...Array.from({ length: SLOT_SPECIFIC_SOCKET_COUNT }, () => ({
+      categories: [SLOT_MOD_CATEGORY[slot]],
+    })),
+  ];
+}
+
+/** Capacity model for one armour slot under the canonical Armor 3.0 layout. */
+export function canonicalModCapacityModel(slot: ArmorSlot): ModCapacityModel {
+  return buildModCapacityModel(canonicalArmorModLayout(slot));
 }
