@@ -87,7 +87,7 @@ describe.runIf(hasDataset)("solve — weapons slice (real data)", () => {
 
     // Ceiling: bounded by beamWidth x rounds x branching over the real dataset's
     // kinetic weapon pool (762 weapons in data/indexes.json). OBSERVED count on
-    // this dataset (deterministic across runs): 11,190 calls. Ceiling set at
+    // this dataset (deterministic across runs): 10,842 calls. Ceiling set at
     // ~2.2x observed as generous headroom — the tripwire for the deferred
     // tightened-bound follow-up (see docs/HANDOFF.md).
     expect(calls).toBeLessThan(25_000);

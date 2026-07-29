@@ -4,7 +4,16 @@ import type { BuildElement } from "@/lib/synergy";
 
 import type { SolverContext } from "./types";
 
-/** Tag richness, for preferring the best-tagged duplicate of a name. */
+/**
+ * Tag richness, for preferring the best-tagged duplicate of a name — and, in
+ * `deriveExoticReach`, for dropping entries that cannot move the bound at all.
+ *
+ * Counts ONLY the three chain fields (`produces`/`consumes`/`triggers`) — exactly what
+ * `scoreSynergy` and `synergyUpperBound` read. `championStuns` is deliberately EXCLUDED:
+ * it is coverage-only, read nowhere in scoring, so counting it here would admit
+ * scoring-inert entries into the reach union and inflate the bound's reach for nothing.
+ * Do not "fix" this by adding it.
+ */
 const tagSize = (a: Armor) =>
   a.tags.produces.length + a.tags.consumes.length + a.tags.triggers.length;
 
@@ -16,10 +25,15 @@ const tagSize = (a: Armor) =>
  * so deduping is not cosmetic: without it the beam wastes ~2.5x its branching re-exploring
  * identical items.
  *
- * Dedup prefers the entry with the RICHEST tag set, tie-broken by lowest hash — the same
- * "prefer tagged" rule `createLookup` uses for `perkByName`. All 141 groups currently agree
- * on their tags, so blind lowest-hash would lose nothing *today*, but nothing enforces that
- * and a future re-ingest carrying a divergent duplicate would silently drop synergy.
+ * Dedup prefers the entry with the RICHEST tag set (highest `tagSize`), tie-broken by lowest
+ * hash. This is NOT the `perkByName` rule in `src/lib/validation/lookup.ts`, despite the
+ * family resemblance — do not "unify" them. That one is a BINARY tagged-vs-untagged test
+ * (`nonEmptyTags`) with a first-seen tie-break, and it counts `championStuns`; this is a
+ * COUNT with a lowest-hash tie-break, and deliberately does not (see `tagSize`).
+ *
+ * All 141 groups currently agree on their tags, so blind lowest-hash would lose nothing
+ * *today*, but nothing enforces that and a future re-ingest carrying a divergent duplicate
+ * would silently drop synergy.
  *
  * Untagged exotics are kept: exactly one exotic is a game floor, and they become meaningful
  * once SP4 fills the `StatFit` seam. Do not "optimize" them out.

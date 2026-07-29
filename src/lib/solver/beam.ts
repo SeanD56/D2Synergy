@@ -318,9 +318,13 @@ export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
         // discarded rather than completed. Confirmed empirically: two open,
         // both-Primary-only slots otherwise leak two single-slot-filled
         // "completions" into `completed` without this guard.
-        // Also require the exotic decided when its dimension is open, for the same reason
-        // the weapon guard exists: a dimension left forever undecided is a dead end, not a
-        // deliverable.
+        // The exotic clause below is DEFENSIVE, and — unlike the weapon guard above — is
+        // unreachable under today's candidate generation: `generateCandidates` emits one
+        // `exoticArmor` candidate per pool entry whenever `exoticHash === undefined`, and
+        // `expand` never `continue`s on that kind, so an exotic-undecided state always has
+        // a move and can never be terminal. It is kept because it is correct and cheap, and
+        // it stops being dead the moment a future slice adds a dimension whose moves can be
+        // pruned away (as the ammo prune does for weapons).
         if (state.weapons.length === env.openWeaponSlots.length
             && (state.exoticHash !== undefined || env.exoticPool.length === 0)) {
           completed.push(state);
