@@ -32,6 +32,16 @@ export interface DatasetMeta {
   ingestedAt: string;
   /** Per-entity-type counts, keyed by dataset file stem (e.g. "weapons"). */
   counts: Record<string, number>;
+  /**
+   * Hash of the CURRENT seasonal artifact, in OUR namespace (i.e. one of `artifacts`).
+   *
+   * A player has exactly one active artifact, so anything defaulting the artifact — the UI
+   * especially — must use this rather than picking arbitrarily, or it would recommend perks the
+   * player cannot access. Resolved by NAME BRIDGE from `DestinyArtifactDefinition`, which holds
+   * only the live artifact but under a DISJOINT hash namespace (measured: 2894222926 there vs
+   * 23349941 here for the same artifact). `undefined` when it cannot be resolved — never guessed.
+   */
+  currentArtifactHash?: Hash;
 }
 
 /** Keyword → entity-hash adjacency for the producer/consumer graph. */

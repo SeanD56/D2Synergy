@@ -67,6 +67,10 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     plugTags: (hash) => dataset.plugTags?.[hash],
     socketCategories: (hash) => dataset.socketTypes?.[hash],
     modsForCategory: (category) => modsByCategory.get(category) ?? [],
+    currentArtifact: () => {
+      const hash = dataset.meta?.currentArtifactHash;
+      return hash === undefined ? undefined : artifacts.get(hash);
+    },
     mod: (hash) => mods.get(hash),
     artifactPerk: (hash) => artifactPerks.get(hash),
   };

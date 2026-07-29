@@ -66,6 +66,11 @@ export interface TransformResult {
    * (see `socket-types.ts`) so ~279 category lists are not duplicated across 6029 pieces.
    */
   socketTypes: Record<Hash, string[]>;
+  /**
+   * The live seasonal artifact, resolved by name bridge (see `resolveCurrentArtifactHash`).
+   * `undefined` when it cannot be resolved — never guessed.
+   */
+  currentArtifactHash?: Hash;
 }
 
 const values = <T>(table: Record<number, T> | undefined): T[] =>
@@ -641,22 +646,57 @@ function transformStats(slice: ManifestSlice): Stat[] {
 }
 
 /** Run every transform over a fetched slice. */
+/**
+ * Hash of the CURRENT seasonal artifact, resolved by a NAME BRIDGE.
+ *
+ * `DestinyArtifactDefinition` holds exactly ONE entry — the live artifact — which is what makes it
+ * the right source for "which season is this". But it is a DISJOINT HASH NAMESPACE from the
+ * `DestinyInventoryItemDefinition` artifacts we actually emit: measured on manifest
+ * `244213.26.06.29.2000-1-bnet.65583` it reports `Implement of Curiosity` at hash 2894222926, while
+ * the same artifact is 23349941 in our set. It also models 5 tiers (the seasonal unlock columns)
+ * against our 3 (the item's socket ceilings 2/3/2), which is exactly why Phase 0 sourced artifacts
+ * from the item and not from here.
+ *
+ * So the bridge is by NAME — the same shape as slice 1's weapon-plug bridge, for the same reason.
+ * Returns `undefined` rather than guessing when the name does not match anything we emit; the
+ * dataset contract test asserts it resolves, so drift fails loudly instead of silently defaulting a
+ * UI to the wrong season.
+ */
+export function resolveCurrentArtifactHash(
+  slice: ManifestSlice,
+  artifacts: Artifact[],
+): Hash | undefined {
+  const table = (slice as unknown as {
+    DestinyArtifactDefinition?: Record<number, { displayProperties?: { name?: string } }>;
+  }).DestinyArtifactDefinition;
+  for (const def of Object.values(table ?? {})) {
+    const name = def.displayProperties?.name?.trim();
+    if (!name) continue;
+    const match = artifacts.find((a) => a.name.trim() === name);
+    if (match) return match.hash;
+  }
+  return undefined;
+}
+
 export function transformAll(
   slice: ManifestSlice,
   classifier: Classifier,
   tag: Tagger,
 ): TransformResult {
   const { weapons, plugTags } = transformWeapons(slice, classifier, tag);
+  // Artifacts first: the current-artifact name bridge needs the transformed set to match against.
+  const artifacts = transformArtifacts(slice, classifier, tag);
   return {
     subclasses: transformSubclasses(slice, classifier),
     aspects: transformAspects(slice, classifier, tag),
     socketTypes: collectArmorSocketTypes(slice),
+    currentArtifactHash: resolveCurrentArtifactHash(slice, artifacts),
     fragments: transformFragments(slice, classifier, tag),
     weapons,
     armor: transformArmor(slice, classifier, tag),
     armorSets: transformArmorSets(slice, tag),
     mods: transformMods(slice, classifier, tag),
-    artifacts: transformArtifacts(slice, classifier, tag),
+    artifacts,
     perks: transformPerks(slice, tag),
     stats: transformStats(slice),
     plugTags,

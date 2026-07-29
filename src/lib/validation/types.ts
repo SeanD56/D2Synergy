@@ -101,6 +101,12 @@ export interface Lookup {
    * seam's property that the solver never enumerates the dataset itself.
    */
   modsForCategory(category: string): Mod[];
+  /**
+   * The CURRENT seasonal artifact, or `undefined` if the dataset could not resolve it. Use this
+   * for any default — a player has exactly one active artifact, and picking arbitrarily among the
+   * 7 would recommend perks they cannot access.
+   */
+  currentArtifact(): Artifact | undefined;
   mod(hash: Hash): Mod | undefined;
   artifactPerk(hash: Hash): ArtifactPerk | undefined;
 }
