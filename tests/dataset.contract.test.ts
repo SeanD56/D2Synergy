@@ -230,3 +230,68 @@ describe.runIf(hasDataset)("dataset contract — subclass plug coverage", () => 
     expect(ds.fragments.length).toBeGreaterThanOrEqual(90); // [measured 99]
   });
 });
+
+/**
+ * Socket-type side table — the mod capacity oracle's prerequisite (SP3b slice 2c).
+ *
+ * The handoff twice deferred the mods slice on the belief that the manifest might not carry
+ * socket-type → accepted-plug-category data. It does, and `DestinySocketTypeDefinition` was
+ * already being fetched. These floors keep that true: if a future ingest stops resolving
+ * armour socket types, the oracle would silently start believing no mod fits anywhere.
+ *
+ * Measured on manifest 244213.26.06.29.2000-1-bnet.65583: 279 socket types, and 100% of the
+ * 25,828 `modSocketHashes` references across armour resolve in the table.
+ */
+describe.runIf(hasDataset)("dataset contract — armour socket types", () => {
+  let ds: DerivedDataset;
+  beforeAll(async () => { ds = await loadDataset(); });
+
+  it("emits a socket-type table at the measured floor", () => {
+    expect(Object.keys(ds.socketTypes).length).toBeGreaterThanOrEqual(250); // [measured 279]
+  });
+
+  it("never emits an empty category list", () => {
+    // Empty would read as "this socket accepts nothing" — a different and much more
+    // destructive claim than "unknown socket type", which is encoded as absence.
+    const empty = Object.entries(ds.socketTypes).filter(([, cats]) => cats.length === 0);
+    expect(empty).toEqual([]);
+  });
+
+  it("resolves EVERY socket type that armour actually references", () => {
+    // THE oracle prerequisite: an unresolvable socket is a socket whose legality cannot be
+    // decided, so partial coverage here is not a partial feature — it is a wrong answer.
+    const missing = new Set<number>();
+    let total = 0;
+    for (const piece of ds.armor) {
+      for (const h of piece.modSocketHashes ?? []) {
+        total++;
+        if (!ds.socketTypes[h]) missing.add(h);
+      }
+    }
+    expect(total).toBeGreaterThan(20_000); // [measured 25,828] — guards against a vacuous pass
+    expect([...missing]).toEqual([]);
+  });
+
+  it("covers each per-slot armour mod category", () => {
+    const accepted = new Set(Object.values(ds.socketTypes).flat());
+    for (const category of [
+      "enhancements.v2_head", "enhancements.v2_arms", "enhancements.v2_chest",
+      "enhancements.v2_legs", "enhancements.v2_class_item", "enhancements.v2_general",
+    ]) {
+      expect(accepted.has(category), `no armour socket accepts ${category}`).toBe(true);
+    }
+  });
+
+  it("keeps most mod categories socket-addressable, with the Ghost-mod remainder", () => {
+    const accepted = new Set(Object.values(ds.socketTypes).flat());
+    const modCategories = new Set(ds.mods.map((m) => m.plugCategory).filter(Boolean));
+    const addressable = [...modCategories].filter((c) => accepted.has(c!));
+    expect(addressable.length).toBeGreaterThanOrEqual(25); // [measured 29 of 35]
+    // The remainder is Ghost-shell mods, which is ALSO the standing explanation for the 196
+    // mods that keep `slotRestriction: undefined` (see the slice-2a section of the handoff).
+    const orphans = [...modCategories].filter((c) => !accepted.has(c!));
+    for (const o of orphans) {
+      expect(o, `unexpected non-Ghost orphan category ${o}`).toMatch(/ghosts_|season_opulence/);
+    }
+  });
+});

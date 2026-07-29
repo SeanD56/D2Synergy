@@ -59,6 +59,8 @@ export const loadPerks = () => loadJson<Perk[]>("perks.json");
 export const loadStats = () => loadJson<Stat[]>("stats.json");
 export const loadPlugTags = () =>
   loadJson<Record<Hash, KeywordTags>>("plug-tags.json");
+export const loadSocketTypes = () =>
+  loadJson<Record<Hash, string[]>>("socket-types.json");
 export const loadIndexes = () => loadJson<Indexes>("indexes.json");
 
 /** Load the entire derived dataset (all files in parallel). */
@@ -76,6 +78,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     perks,
     stats,
     plugTags,
+    socketTypes,
     indexes,
   ] = await Promise.all([
     loadMeta(),
@@ -90,6 +93,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     loadPerks(),
     loadStats(),
     loadPlugTags(),
+    loadSocketTypes(),
     loadIndexes(),
   ]);
 
@@ -106,6 +110,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     perks,
     stats,
     plugTags,
+    socketTypes,
     indexes,
   };
 }

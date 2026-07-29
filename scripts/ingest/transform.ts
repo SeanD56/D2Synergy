@@ -41,6 +41,7 @@ import type { Classifier } from "./classify";
 import type { ManifestSlice } from "./fetchManifest";
 import type { Tagger } from "./keywords";
 import { modSlotFromPlugCategory } from "./mod-slots";
+import { collectArmorSocketTypes } from "./socket-types";
 
 /** All derived entity arrays produced by a single transform pass. */
 export interface TransformResult {
@@ -60,6 +61,11 @@ export interface TransformResult {
    * only ~1k distinct plug hashes, so inlining costs ~7MB against ~0.08MB here.
    */
   plugTags: Record<Hash, KeywordTags>;
+  /**
+   * Socket-type hash → accepted plug categories, for socket types on armour. Side table
+   * (see `socket-types.ts`) so ~279 category lists are not duplicated across 6029 pieces.
+   */
+  socketTypes: Record<Hash, string[]>;
 }
 
 const values = <T>(table: Record<number, T> | undefined): T[] =>
@@ -644,6 +650,7 @@ export function transformAll(
   return {
     subclasses: transformSubclasses(slice, classifier),
     aspects: transformAspects(slice, classifier, tag),
+    socketTypes: collectArmorSocketTypes(slice),
     fragments: transformFragments(slice, classifier, tag),
     weapons,
     armor: transformArmor(slice, classifier, tag),

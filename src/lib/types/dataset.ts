@@ -73,5 +73,11 @@ export interface DerivedDataset {
   stats: Stat[];
   /** Weapon plug hash → keyword tags (side table; see `TransformResult`). */
   plugTags: Record<Hash, KeywordTags>;
+  /**
+   * Armour socket-type hash → the plug categories that socket accepts (side table).
+   * Feeds the mod capacity oracle: `Armor.modSocketHashes` says which sockets a piece has,
+   * this says what each admits.
+   */
+  socketTypes: Record<Hash, string[]>;
   indexes: Indexes;
 }
