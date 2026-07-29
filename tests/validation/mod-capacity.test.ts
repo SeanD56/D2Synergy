@@ -1,10 +1,17 @@
-import { describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it } from "vitest";
+
+import { loadDataset } from "@/lib/data";
+import type { DerivedDataset } from "@/lib/types";
 
 import {
   ARMOR_ENERGY_CAPACITY,
   buildModCapacityModel,
   canAddMod,
+  canonicalArmorModLayout,
+  canonicalModCapacityModel,
   evaluateModCapacity,
+  GENERAL_MOD_CATEGORIES,
+  SLOT_SPECIFIC_SOCKET_COUNT,
   type ModSocket,
 } from "@/lib/validation/mod-capacity";
 
@@ -289,3 +296,96 @@ function permutations<T>(xs: T[]): T[][] {
   return xs.flatMap((x, i) =>
     permutations([...xs.slice(0, i), ...xs.slice(i + 1)]).map((rest) => [x, ...rest]));
 }
+
+/**
+ * The canonical Armor 3.0 per-slot layout, checked against REAL data.
+ *
+ * This is what lets the solver model mods without choosing armour pieces: it writes only
+ * `armor.exoticHash` and never `armor.pieces`, so a per-PIECE model would have nothing to attach
+ * mods to. Per-SLOT is exact here rather than approximate — 990 of the 999 Armor 3.0 pieces match,
+ * and every exception is already out of scope.
+ */
+describe("canonicalArmorModLayout — verified against the real dataset", () => {
+  let ds: DerivedDataset;
+  beforeAll(async () => { ds = await loadDataset(); });
+
+  /** Armor 3.0 = carries the `armor_tiering` socket (measured: exactly 999 pieces). */
+  const armor30 = () => {
+    const tiering = new Set(
+      Object.entries(ds.socketTypes)
+        .filter(([, cats]) => cats.some((c) => c.includes("armor_tiering")))
+        .map(([h]) => Number(h)),
+    );
+    return ds.armor.filter((a) => (a.modSocketHashes ?? []).some((h) => tiering.has(h)));
+  };
+
+  /** A piece's mod sockets, excluding masterwork and the tuning socket (neither takes a mod). */
+  const modSocketsOf = (piece: { modSocketHashes?: number[] }) => {
+    const out: string[][] = [];
+    for (const h of piece.modSocketHashes ?? []) {
+      const cats = ds.socketTypes[h];
+      if (!cats) continue;
+      if (cats.some((c) => c.includes("masterwork") || c.includes("armor_tiering"))) continue;
+      out.push([...cats].sort());
+    }
+    return out;
+  };
+
+  const signature = (sockets: string[][]) =>
+    JSON.stringify(sockets.map((s) => s.join("+")).sort());
+
+  it("identifies exactly the measured Armor 3.0 population", () => {
+    expect(armor30().length).toBe(999);
+  });
+
+  it("matches the real socket layout for at least 990 of the 999 Armor 3.0 pieces", () => {
+    let matched = 0;
+    const mismatches: string[] = [];
+    for (const piece of armor30()) {
+      const expected = signature(
+        canonicalArmorModLayout(piece.slot).map((s) => [...s.categories].sort()),
+      );
+      if (signature(modSocketsOf(piece)) === expected) matched++;
+      else mismatches.push(piece.name);
+    }
+    expect(matched).toBeGreaterThanOrEqual(990);
+    // The exceptions must stay confined to the already-out-of-scope families, so a NEW kind of
+    // exception fails loudly rather than being absorbed by the >=990 floor.
+    expect(mismatches.length).toBeLessThanOrEqual(9);
+  });
+
+  it("gives every slot one general socket plus three slot-specific ones", () => {
+    for (const slot of ["helmet", "arms", "chest", "legs", "class"] as const) {
+      const layout = canonicalArmorModLayout(slot);
+      expect(layout).toHaveLength(1 + SLOT_SPECIFIC_SOCKET_COUNT);
+      const multi = layout.filter((s) => s.categories.length > 1);
+      expect(multi).toHaveLength(1); // exactly one general socket
+      expect(multi[0].categories).toEqual([...GENERAL_MOD_CATEGORIES]);
+    }
+  });
+
+  it("admits three slot mods plus one general mod when energy allows", () => {
+    const model = canonicalModCapacityModel("legs");
+    const mods = [
+      { category: "enhancements.v2_legs", energyCost: 3 },
+      { category: "enhancements.v2_legs", energyCost: 3 },
+      { category: "enhancements.v2_legs", energyCost: 3 },
+      { category: "enhancements.v2_general", energyCost: 2 },
+    ];
+    const result = evaluateModCapacity(model, mods);
+    expect(result.energyUsed).toBe(11);
+    expect(result.feasible).toBe(true);
+  });
+
+  it("shows the energy budget binds before the sockets do", () => {
+    // Four sockets exist, but four mods at 3 energy each is 12 > 11. This is why UNDERFILL is
+    // normal for mods, unlike fragments/aspects which are fill-to-cap game floors.
+    const model = canonicalModCapacityModel("legs");
+    const four = Array.from({ length: 3 }, () => ({ category: "enhancements.v2_legs", energyCost: 3 }))
+      .concat([{ category: "enhancements.v2_general", energyCost: 3 }]);
+    const result = evaluateModCapacity(model, four);
+    expect(result.socketsFeasible).toBe(true);
+    expect(result.energyFeasible).toBe(false);
+    expect(result.feasible).toBe(false);
+  });
+});

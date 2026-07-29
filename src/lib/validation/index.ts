@@ -24,6 +24,12 @@ export {
   evaluateModCapacity,
   canAddMod,
 } from "./mod-capacity";
+export {
+  GENERAL_MOD_CATEGORIES,
+  SLOT_SPECIFIC_SOCKET_COUNT,
+  canonicalArmorModLayout,
+  canonicalModCapacityModel,
+} from "./mod-capacity";
 export type { ModCapacityModel, ModCapacity, ModSocket, PlaceableMod } from "./mod-capacity";
 export type {
   Lookup,
