@@ -18,6 +18,17 @@ const aspect100: Aspect = {
   kind: "aspect", hash: 100, name: "Asp", element: "arc", classType: "any",
   fragmentSlots: 0, tags: EMPTY_TAGS,
 };
+/**
+ * Second aspect, present in every build below purely to CLOSE the solver-chosen-aspect
+ * dimension (a build pins exactly ASPECT_CAP = 2 aspects). Grants zero fragment slots so it
+ * cannot change any fragment-cap expectation, and carries no tags so it cannot change any
+ * synergy or bound expectation. Without it these exotic-dimension fixtures would pin one
+ * aspect, open the aspect dimension, and fail with ASPECT_POOL_TOO_SMALL.
+ */
+const aspectFiller: Aspect = {
+  kind: "aspect", hash: 199, name: "Filler", element: "arc", classType: "any",
+  fragmentSlots: 0, tags: EMPTY_TAGS,
+};
 const artifact300: Artifact = {
   kind: "artifact", hash: 300, name: "Art", tiers: [{ tierIndex: 0, slots: 0, perks: [] }],
 };
@@ -40,7 +51,7 @@ function ctxWith(
   for (const f of fragments) (elementToItems[f.element] ??= []).push(f.hash);
   const ds = {
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
-    subclasses: [], aspects: opts.aspects ?? [aspect100], fragments,
+    subclasses: [], aspects: [...(opts.aspects ?? [aspect100]), aspectFiller], fragments,
     weapons: [], armor: pieces,
     armorSets: [], mods: [], artifacts: [artifact300], perks: [], stats: [], plugTags: {},
     indexes: { ...EMPTY_INDEXES, exoticToClassSlot, elementToItems },
@@ -52,7 +63,8 @@ const build = (
   over: { classType?: string; exoticHash?: number; constraints?: unknown[]; aspectHashes?: number[] } = {},
 ): Build => ({
   subclass: {
-    element: "arc", aspectHashes: over.aspectHashes ?? [100], fragmentHashes: [],
+    element: "arc", aspectHashes: [...(over.aspectHashes ?? [100]), aspectFiller.hash],
+    fragmentHashes: [],
     classType: over.classType,
   },
   weapons: [],
@@ -63,13 +75,13 @@ const build = (
 
 describe("stateKey — exotic component", () => {
   it("is byte-identical to slice 1 when no exotic is given", () => {
-    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [] })).toBe("frag:1,2|perk:3");
-    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], exoticHash: undefined }))
+    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], aspectHashes: [] })).toBe("frag:1,2|perk:3");
+    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], aspectHashes: [], exoticHash: undefined }))
       .toBe("frag:1,2|perk:3");
   });
 
   it("appends the exotic when present", () => {
-    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], exoticHash: 55 }))
+    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], aspectHashes: [], exoticHash: 55 }))
       .toBe("frag:1|perk:2|exo:55");
   });
 });
@@ -213,7 +225,8 @@ describe("beamSearch — exotic terminal behaviour", () => {
     )!;
 
     const parent = makeState(
-      env, { fragHashes: [], perkHashes: [], weapons: [], exoticHash: 10 }, synergyUpperBound,
+      env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [], exoticHash: 10 },
+      synergyUpperBound,
     );
     // The exotic is already decided, so the only legal move left is the fragment — no
     // exoticArmor candidate exists here to mask a dropped forward via re-selection.
@@ -254,7 +267,7 @@ describe("beam bound — exotic reach wiring", () => {
     const rootOf = (e: typeof envTagged) => makeState(e, {
       fragHashes: e.base.subclass.fragmentHashes,
       perkHashes: e.base.artifact.selectedPerkHashes,
-      weapons: [],
+      weapons: [], aspectHashes: [],
     }, synergyUpperBound);
     const rootTagged = rootOf(envTagged);
     const rootUntagged = rootOf(envUntagged);
@@ -296,7 +309,7 @@ describe("expand() — exotic forwarding across the remaining three branches", (
     for (const a of pieces) exoticToClassSlot[a.hash] = { classType: a.classType, slot: a.slot };
     const ds = {
       meta: { ingestedAt: "", manifestVersion: "", counts: {} },
-      subclasses: [], aspects: [aspect100], fragments: [],
+      subclasses: [], aspects: [aspect100, aspectFiller], fragments: [],
       weapons: [weaponKinetic, weaponEnergy], armor: pieces,
       armorSets: [], mods: [], artifacts: [richArtifact], perks: [], stats: [], plugTags: {},
       indexes: {
@@ -309,7 +322,10 @@ describe("expand() — exotic forwarding across the remaining three branches", (
 
   function richBuild(): Build {
     return {
-      subclass: { element: "arc", aspectHashes: [100], fragmentHashes: [], classType: "warlock" },
+      subclass: {
+        element: "arc", aspectHashes: [100, aspectFiller.hash], fragmentHashes: [],
+        classType: "warlock",
+      },
       weapons: [
         { slot: "kinetic", itemHash: undefined, perkConstraints: [] },
         { slot: "energy", itemHash: undefined, perkConstraints: [] },
@@ -330,6 +346,7 @@ describe("expand() — exotic forwarding across the remaining three branches", (
     const parent = makeState(env, {
       fragHashes: [], perkHashes: [],
       weapons: [{ slot: "kinetic", itemHash: 500, plugHashes: [] }],
+      aspectHashes: [],
       exoticHash: 10,
     }, synergyUpperBound);
 
