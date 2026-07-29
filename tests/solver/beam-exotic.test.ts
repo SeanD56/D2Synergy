@@ -22,6 +22,16 @@ const aspect100: Aspect = {
   kind: "aspect", hash: 100, name: "Asp", element: "arc", classType: "any",
   fragmentSlots: 1, tags: EMPTY_TAGS,
 };
+/**
+ * Second aspect, pinned in every build here purely to CLOSE the solver-chosen-aspect
+ * dimension (a build pins exactly ASPECT_CAP = 2). Zero fragment slots and no tags, so it
+ * cannot move any fragment-cap, synergy or bound expectation in this file — which is about
+ * the EXOTIC dimension.
+ */
+const aspectFiller: Aspect = {
+  kind: "aspect", hash: 199, name: "Filler", element: "arc", classType: "any",
+  fragmentSlots: 0, tags: EMPTY_TAGS,
+};
 const artifact300: Artifact = {
   kind: "artifact", hash: 300, name: "Art", tiers: [{ tierIndex: 0, slots: 0, perks: [] }],
 };
@@ -61,7 +71,7 @@ function ctxFor(): SolverContext {
   }
   const ds = {
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
-    subclasses: [], aspects: [aspect100], fragments: [fragInert, fragConsumer],
+    subclasses: [], aspects: [aspect100, aspectFiller], fragments: [fragInert, fragConsumer],
     weapons: [], armor: armorPieces, armorSets: [], mods: [], artifacts: [artifact300],
     perks: [], stats: [], plugTags: {},
     indexes: {
@@ -74,7 +84,9 @@ function ctxFor(): SolverContext {
 }
 
 const pinnedBuild = (): Build => ({
-  subclass: { element: "arc", classType: "warlock", aspectHashes: [100], fragmentHashes: [] },
+  subclass: {
+    element: "arc", classType: "warlock", aspectHashes: [100, 199], fragmentHashes: [],
+  },
   weapons: [],
   armor: { pieces: [], setBonuses: [], statPriorities: [], modHashes: [] },
   artifact: { artifactHash: 300, selectedPerkHashes: [] },
@@ -151,7 +163,7 @@ describe("synergyUpperBound — admissibility over the exotic dimension", () => 
     const ctx = ctxFor();
     const env = buildSolverEnv(pinnedBuild(), ctx, { beamWidth: 1 })!;
     // Consumer fragment chosen; exotic still open.
-    const s = makeState(env, { fragHashes: [401], perkHashes: [], weapons: [] }, synergyUpperBound);
+    const s = makeState(env, { fragHashes: [401], perkHashes: [], weapons: [], aspectHashes: [] }, synergyUpperBound);
     // Derive the completion set from the state under test rather than hard-coding it, so
     // adding a third exotic (or any other candidate kind) cannot silently shrink what this
     // gate covers. The explicit equality below then pins the fixture invariant loudly: if it

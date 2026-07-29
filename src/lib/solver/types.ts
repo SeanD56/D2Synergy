@@ -61,6 +61,7 @@ export type InfeasibilityCode =
   | "WEAPON_SLOT_NO_LEGAL_ITEM"
   | "EXOTIC_POOL_EMPTY"
   | "EXOTIC_PIN_CONTRADICTS_PINNED_PIECE"
+  | "ASPECT_POOL_TOO_SMALL"
   | "NO_COMPLETION_FOUND";
 
 /** One reason a build could not be completed. */

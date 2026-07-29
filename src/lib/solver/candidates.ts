@@ -1,10 +1,11 @@
-import type { Armor, Artifact, ArtifactPerk, Fragment, Hash, KeywordTags, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, Artifact, ArtifactPerk, Aspect, Fragment, Hash, KeywordTags, SubclassElement, WeaponSlot } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
 import { canAddArtifactPerk } from "@/lib/validation";
 
 import type { BuildElement } from "@/lib/synergy";
 
+import { ASPECT_CAP } from "./subclass";
 import type { SolverContext } from "./types";
 import type { LegalWeapon } from "./weapons";
 
@@ -42,7 +43,7 @@ export function deriveArtifactPerkPool(_ctx: SolverContext, artifact: Artifact):
 
 /** One legal move: add a fragment, artifact perk, weapon, or weapon plug to an open dimension. */
 export interface Candidate {
-  kind: "fragment" | "artifactPerk" | "weapon" | "weaponPerk" | "exoticArmor";
+  kind: "fragment" | "artifactPerk" | "weapon" | "weaponPerk" | "exoticArmor" | "aspect";
   hash: Hash;
   /** Native (lowest) tier — present only for artifact perks (for canAdd). */
   nativeTier?: number;
@@ -66,6 +67,11 @@ export interface WeaponPick {
 interface CandidateEnv {
   fragmentPool: Fragment[];
   perkPool: ArtifactPerk[];
+  /**
+   * Fragment slots available to THIS state. With aspects solver-chosen the cap is dynamic,
+   * so `makeState` passes a derived env carrying the per-state value rather than the
+   * env-wide one (see its `fragmentSlotsFor` call).
+   */
   fragmentCap: number;
   capModel: CapacityModel;
   openWeaponSlots: WeaponSlot[];
@@ -74,6 +80,11 @@ interface CandidateEnv {
   resolvePlugTags: (plug: { hash: Hash; name: string }) => KeywordTags;
   /** Class-filtered, name-deduped exotic pool. EMPTY ⇒ the exotic dimension is closed. */
   exoticPool: Armor[];
+  /**
+   * Class+element-filtered aspect pool. EMPTY (or absent) ⇒ the aspect dimension is closed.
+   * Optional so the several test envs that predate this dimension still satisfy the type.
+   */
+  aspectPool?: Aspect[];
 }
 
 /**
@@ -89,10 +100,24 @@ export function generateCandidates(
   cap: Capacity,
   weaponPicks: WeaponPick[],
   exoticHash?: Hash,
+  aspectHashes: Hash[] = [],
 ): Candidate[] {
   const chosenFrag = new Set(fragHashes);
   const chosenPerk = new Set(perkHashes);
   const out: Candidate[] = [];
+
+  // Aspects: a subset-fill to the ASPECT_CAP game floor, like fragments — and, like them,
+  // single-stage (choosing an aspect decides it outright; there is no second stage). Offered
+  // before fragments because an aspect is what GRANTS fragment slots: with zero aspects the
+  // dynamic cap is 0, so `fragmentCap` below legitimately offers nothing yet.
+  if (aspectHashes.length < ASPECT_CAP) {
+    const chosenAspect = new Set(aspectHashes);
+    for (const a of env.aspectPool ?? []) {
+      if (chosenAspect.has(a.hash)) continue;
+      out.push({ kind: "aspect", hash: a.hash,
+        element: { hash: a.hash, source: `aspect:${a.name}`, tags: a.tags } });
+    }
+  }
 
   if (fragHashes.length < env.fragmentCap) {
     for (const f of env.fragmentPool) {

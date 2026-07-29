@@ -12,7 +12,7 @@ import { solve, type SolverContext } from "@/lib/solver";
 
 const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.json"));
 
-// OBSERVED on this dataset (deterministic across runs): 5437 calls. Ceiling ~2x for
+// OBSERVED on this dataset (deterministic across runs): 6643 calls. Ceiling ~2x for
 // season-drift headroom. The exotic dimension adds a ~38-element reach union where a real
 // build contributes ONE exotic, so this is the tripwire for that looseness.
 const EXOTIC_BOUND_CALL_CEILING = 12_000;
@@ -23,12 +23,20 @@ const EXOTIC_BOUND_CALL_CEILING = 12_000;
 // is fully expanded, so they don't dampen this), while the closed baseline never touches
 // exoticPool at all. Growing the pool legitimately (season re-ingest) grows this ratio too.
 //
-// Measured today: 2,006 closed -> 5,437 open = 2.71x, with a pool of 47 exotics/class.
-// (Was 2,136 -> 5,567 = 2.61x before the stasis + placeholder ingest repair. BOTH sides
-// fell by ~130 calls because the repair removed 12 no-op "Empty Fragment Socket" entries
-// from the fragment pool; the ratio rose slightly because the same absolute drop is a
-// larger fraction of the smaller closed baseline. The exotic dimension itself did not
-// change — a useful reminder that this ratio moves when EITHER side's pool moves.)
+// Measured today: 2,446 closed -> 6,643 open = 2.72x, with a pool of 47 exotics/class.
+//
+// History, because this ratio moves when EITHER side's pool moves — which is most of what
+// there is to know about reading it:
+//   2,136 -> 5,567 = 2.61x  original
+//   2,006 -> 5,437 = 2.71x  after the stasis + placeholder ingest repair. Both sides fell
+//                           ~130 calls (12 no-op "Empty Fragment Socket" entries left the
+//                           fragment pool); the ratio rose because the same absolute drop is
+//                           a larger fraction of the smaller closed baseline.
+//   2,446 -> 6,643 = 2.72x  after this fixture began pinning ASPECT_CAP aspects instead of
+//                           one. Both sides rose because two aspects grant more fragment
+//                           slots than one, so there is more to search. The RATIO barely
+//                           moved, which is the point: the exotic dimension's marginal cost
+//                           is what this measures, and it did not change.
 //
 // 3.5 was picked to catch the regression band the absolute ceiling above cannot see (an
 // open-side cost of 8,000-11,000 against the fixed ~2,000 closed baseline lands at
@@ -56,15 +64,25 @@ describe.runIf(hasDataset)("solve — exotic armor dimension (real data)", () =>
   const fixture = (): Build => fixtureWithClassType("warlock");
 
   /**
-   * Same fixture, with `classType` present or absent — the sole determinant (per
-   * beam.ts) of whether the exotic dimension is open. Passing `undefined` closes it.
+   * Same fixture, with `classType` present or absent — the determinant (per beam.ts) of
+   * whether the exotic dimension is open. Passing `undefined` closes it.
+   *
+   * ⚠️ Pins ASPECT_CAP aspects deliberately. `classType` also gates the solver-chosen-ASPECT
+   * dimension, so pinning only one aspect would make `classType` toggle TWO dimensions at
+   * once and the marginal factor below would no longer isolate the exotic dimension it
+   * claims to measure. Filling the aspect slots closes that dimension on both sides. The
+   * aspect dimension's own cost is measured separately, in integration-aspects.test.ts.
    */
   const fixtureWithClassType = (classType: "warlock" | undefined): Build => {
-    const aspect = ds.aspects.find((a) => a.element === "arc" && a.fragmentSlots > 0);
+    const aspects = ds.aspects.filter((a) => a.element === "arc" && a.fragmentSlots > 0);
     const artifact = ds.artifacts[0];
-    if (!aspect || !artifact) throw new Error("expected an arc aspect + an artifact");
+    if (aspects.length < 2 || !artifact) throw new Error("expected 2 arc aspects + an artifact");
     return {
-      subclass: { element: "arc", classType, aspectHashes: [aspect.hash], fragmentHashes: [] },
+      subclass: {
+        element: "arc", classType,
+        aspectHashes: [aspects[0].hash, aspects[1].hash],
+        fragmentHashes: [],
+      },
       weapons: [],
       armor: { pieces: [], setBonuses: [], statPriorities: [], modHashes: [] },
       artifact: { artifactHash: artifact.hash, selectedPerkHashes: [] },

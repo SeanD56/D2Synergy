@@ -1,4 +1,4 @@
-import type { Armor, ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, ArtifactPerk, Aspect, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
 import { EMPTY_TAGS } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
@@ -15,6 +15,7 @@ import {
   type WeaponPick,
 } from "./candidates";
 import { deriveExoticArmorPool, deriveExoticReach } from "./armor";
+import { ASPECT_CAP, deriveAspectPool, deriveAspectReach, fragmentSlotsFor } from "./subclass";
 import { neutralStatFit } from "./stat-fit";
 import type { BoundFn, Infeasibility, SolveOptions, SolverContext, StatFit } from "./types";
 import {
@@ -57,6 +58,17 @@ export interface SolverEnv {
   exoticPool: Armor[];
   /** Precomputed loose reachable-union for the undecided exotic (open-slot bound). */
   exoticReach: BuildElement[];
+  /**
+   * Class+element-filtered aspect pool. A NON-EMPTY pool is exactly "the aspect dimension
+   * is open" — it is empty both when no class is pinned (pools are class-specific, so
+   * guessing would offer the wrong class's aspects) and when `ASPECT_CAP` aspects are
+   * already pinned.
+   */
+  aspectPool: Aspect[];
+  /** Precomputed loose reachable-union for the still-undecided aspects. */
+  aspectReach: BuildElement[];
+  /** Aspects pinned in the base build — the floor the solver's choices add to. */
+  pinnedAspects: Hash[];
 }
 
 /**
@@ -79,6 +91,13 @@ export interface Selection {
   weapons: WeaponPick[];
   /** The chosen exotic, when this dimension is open and decided. */
   exoticHash?: Hash;
+  /**
+   * Aspects chosen by the solver, EXCLUDING any pinned in the base build — `makeState`
+   * concatenates the two when writing the build, so the pinned ones are never duplicated
+   * here. Empty when the dimension is closed, which is what keeps state keys
+   * byte-identical to every key written before this dimension existed.
+   */
+  aspectHashes: Hash[];
 }
 
 /** A partial build in the beam. `candidates` are its legal add-one-element moves. */
@@ -104,9 +123,11 @@ export function stateKey(selection: Selection): string {
       .join(";");
     key = `${key}|wpn:${wpn}`;
   }
-  // Both components are appended only when present, so SP3a and slice-1 keys are
-  // byte-identical (no exotic ⇒ no suffix).
+  // Every component is appended only when present, so SP3a and slice-1 keys are
+  // byte-identical (no exotic and no chosen aspect ⇒ no suffix). Order is fixed —
+  // wpn, exo, asp — because the key is compared as a string.
   if (selection.exoticHash !== undefined) key = `${key}|exo:${selection.exoticHash}`;
+  if (selection.aspectHashes.length > 0) key = `${key}|asp:${s(selection.aspectHashes)}`;
   return key;
 }
 
@@ -162,15 +183,53 @@ export function resolveSolverEnv(
     }
   }
 
-  const fragmentCap = base.subclass.aspectHashes.reduce(
-    (sum, h) => sum + (ctx.lookup.aspect(h)?.fragmentSlots ?? 0),
-    0,
-  );
-  if (base.subclass.fragmentHashes.length > fragmentCap) {
+  // Aspects. The dimension is OPEN iff a class is pinned (pools are class-specific) AND
+  // fewer than ASPECT_CAP aspects are pinned. An empty pool ⇔ closed, as with exotics.
+  const pinnedAspects = base.subclass.aspectHashes;
+  const aspectsWanted = ASPECT_CAP - pinnedAspects.length;
+  let aspectPool: Aspect[] = [];
+  // A pinned class is REQUIRED to open the dimension, not merely preferred: without it the
+  // pool would have to span all three classes and the solver would emit illegal builds.
+  // Absent classType ⇒ pool stays empty ⇒ dimension closed ⇒ byte-compatible with every
+  // build that predates this dimension.
+  if (element !== undefined && aspectsWanted > 0 && base.subclass.classType !== undefined) {
+    aspectPool = deriveAspectPool(ctx, element, base.subclass.classType)
+      .filter((a) => !pinnedAspects.includes(a.hash));
+    if (aspectPool.length < aspectsWanted) {
+      // Fewer choosable aspects than empty slots — including a pool of zero — so no state
+      // can ever reach ASPECT_CAP. Said here rather than letting the search run and
+      // degrade to the much vaguer NO_COMPLETION_FOUND.
+      reasons.push({
+        code: "ASPECT_POOL_TOO_SMALL",
+        message: `${pinnedAspects.length} aspect(s) are pinned and only ${aspectPool.length} `
+          + `more are available for this class and element, but a build requires `
+          + `${ASPECT_CAP}.`,
+      });
+    }
+  }
+
+  // Fragment cap from the PINNED aspects. When the aspect dimension is open this is only a
+  // FLOOR — `makeState` recomputes the cap per state as aspects are chosen, because it
+  // grows monotonically with each one.
+  const fragmentCap = fragmentSlotsFor(ctx, pinnedAspects);
+  // So the "too many pinned fragments" test must compare against the BEST cap still
+  // reachable, not the floor: with the dimension open, the solver may yet choose aspects
+  // that grant the slots those fragments need. Take the `aspectsWanted` most generous pool
+  // entries — an upper bound, so this never reports a false infeasibility.
+  const bestExtraSlots = aspectPool
+    .map((a) => a.fragmentSlots)
+    .sort((x, y) => y - x)
+    .slice(0, Math.max(0, aspectsWanted))
+    .reduce((sum, n) => sum + n, 0);
+  const maxFragmentCap = fragmentCap + bestExtraSlots;
+  if (base.subclass.fragmentHashes.length > maxFragmentCap) {
     reasons.push({
       code: "FRAGMENTS_EXCEED_ASPECT_SLOTS",
-      message: `${base.subclass.fragmentHashes.length} fragment(s) are pinned but the chosen `
-        + `aspects grant only ${fragmentCap} fragment slot(s).`,
+      message: aspectPool.length > 0
+        ? `${base.subclass.fragmentHashes.length} fragment(s) are pinned but even the most `
+          + `generous aspects available grant only ${maxFragmentCap} fragment slot(s).`
+        : `${base.subclass.fragmentHashes.length} fragment(s) are pinned but the chosen `
+          + `aspects grant only ${fragmentCap} fragment slot(s).`,
       hashes: [...base.subclass.fragmentHashes],
     });
   }
@@ -266,6 +325,9 @@ export function resolveSolverEnv(
     resolvePlugTags,
     exoticPool,
     exoticReach: deriveExoticReach(exoticPool),
+    aspectPool,
+    aspectReach: deriveAspectReach(aspectPool),
+    pinnedAspects,
   }, reasons };
 }
 
@@ -291,7 +353,17 @@ export function makeState(env: SolverEnv, selection: Selection, bound: BoundFn):
   const frag = [...selection.fragHashes].sort((a, b) => a - b);
   const perk = [...selection.perkHashes].sort((a, b) => a - b);
   const { weapons: weaponPicks, exoticHash } = selection;
-  const normalized: Selection = { ...selection, fragHashes: frag, perkHashes: perk };
+  const chosenAspects = [...selection.aspectHashes].sort((a, b) => a - b);
+  const normalized: Selection = {
+    ...selection, fragHashes: frag, perkHashes: perk, aspectHashes: chosenAspects,
+  };
+  // Pinned aspects plus this state's choices. The solver's `Selection` carries ONLY its own
+  // choices, so the two are concatenated here rather than stored merged — that keeps the
+  // state key free of the pinned ones and so keeps closed-dimension keys byte-identical.
+  const allAspects = [...env.pinnedAspects, ...chosenAspects];
+  // THE dynamic cap. Recomputed per state because it grows as aspects are added; monotonic
+  // growth is what keeps fill-to-cap satisfiable (see `fragmentSlotsFor`).
+  const fragmentCap = fragmentSlotsFor(env.ctx, allAspects);
   const pickBySlot = new Map(weaponPicks.map((p) => [p.slot, p]));
   const weapons = env.base.weapons.map((sel) => {
     const pick = sel.itemHash === undefined ? pickBySlot.get(sel.slot) : undefined;
@@ -309,7 +381,7 @@ export function makeState(env: SolverEnv, selection: Selection, bound: BoundFn):
   });
   const build: Build = {
     ...env.base,
-    subclass: { ...env.base.subclass, fragmentHashes: frag },
+    subclass: { ...env.base.subclass, fragmentHashes: frag, aspectHashes: allAspects },
     // `?? env.base.armor.exoticHash` keeps a base-pinned exotic when this dimension is closed.
     armor: { ...env.base.armor, exoticHash: exoticHash ?? env.base.armor.exoticHash },
     artifact: { ...env.base.artifact, selectedPerkHashes: perk },
@@ -317,17 +389,28 @@ export function makeState(env: SolverEnv, selection: Selection, bound: BoundFn):
   };
   const cap = evaluateArtifactCapacity(env.capModel, perk);
   const realized = scoreSynergy(build, env.lookup);
-  const candidates = generateCandidates(env, frag, perk, cap, weaponPicks, exoticHash);
+  // The derived env carries THIS state's dynamic fragment cap. Passing it this way rather
+  // than as another positional parameter keeps `generateCandidates`' signature — and its
+  // five positional test call sites — untouched.
+  // `allAspects`, NOT `chosenAspects`: the cap is on the build's total, so counting only the
+  // solver's own picks would offer ASPECT_CAP more on top of any pinned ones. The pool
+  // already excludes pinned hashes, so the union cannot cause a duplicate offer.
+  const candidates = generateCandidates(
+    { ...env, fragmentCap }, frag, perk, cap, weaponPicks, exoticHash, allAspects,
+  );
   // Open-slot bound: augment the addable set with each not-yet-decided dimension's
   // precomputed reachable-union (candidates alone under-cover a dimension still open).
   const addable = candidates
-    // weapon- and exotic-selection tags are covered by their reach unions below
-    .filter((c) => c.kind !== "weapon" && c.kind !== "exoticArmor")
+    // weapon-, exotic- and aspect-selection tags are covered by their reach unions below
+    .filter((c) => c.kind !== "weapon" && c.kind !== "exoticArmor" && c.kind !== "aspect")
     .map((c) => c.element);
   for (const slot of env.openWeaponSlots) {
     if (!pickBySlot.has(slot)) addable.push(...(env.weaponReach.get(slot) ?? []));
   }
   if (exoticHash === undefined && env.exoticPool.length > 0) addable.push(...env.exoticReach);
+  if (allAspects.length < ASPECT_CAP && env.aspectPool.length > 0) {
+    addable.push(...env.aspectReach);
+  }
   const priority = bound(build, addable, env.lookup);
   return { build, selection: normalized, cap, realized, candidates, priority,
     key: stateKey(normalized) };
@@ -351,6 +434,8 @@ export function expand(state: SolverState, env: SolverEnv, bound: BoundFn): Solv
       out.push(makeState(env, { ...sel, perkHashes: [...sel.perkHashes, c.hash] }, bound));
     } else if (c.kind === "exoticArmor") {
       out.push(makeState(env, { ...sel, exoticHash: c.hash }, bound));
+    } else if (c.kind === "aspect") {
+      out.push(makeState(env, { ...sel, aspectHashes: [...sel.aspectHashes, c.hash] }, bound));
     } else if (c.kind === "weapon") {
       // Choose a weapon for slot c.slot. Eager ammo prune: skip if it makes the
       // no-double-Primary rule unsatisfiable across all decided weapons.
@@ -390,6 +475,21 @@ export function dimensionsAllDecided(state: SolverState, env: SolverEnv): boolea
   // it is correct and cheap, and it stops being dead the moment a future slice adds a
   // dimension whose moves can be pruned away (as the ammo prune does for weapons).
   if (state.selection.exoticHash === undefined && env.exoticPool.length > 0) return false;
+  // Aspects: `ASPECT_CAP` is a hard game floor. Counts PINNED + CHOSEN, because
+  // `Selection.aspectHashes` carries only the solver's own picks — comparing those alone
+  // against the cap would refuse to ever complete a build that had one aspect pinned.
+  //
+  // Like the exotic clause above, this is DEFENSIVE and unreachable under today's candidate
+  // generation (confirmed by mutation: deleting it reddens nothing). `resolveSolverEnv`
+  // rejects a pool too small to reach the cap up front (ASPECT_POOL_TOO_SMALL), and
+  // `generateCandidates` always offers an unchosen pool entry while under the cap, so an
+  // aspect-undecided state always has a move and can never be terminal. Kept because it is
+  // correct and cheap, and it stops being dead the moment a future slice can prune aspect
+  // moves away (as the ammo prune does for weapons).
+  if (env.aspectPool.length > 0
+      && env.pinnedAspects.length + state.selection.aspectHashes.length < ASPECT_CAP) {
+    return false;
+  }
   return true;
 }
 
@@ -431,6 +531,7 @@ export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
     fragHashes: env.base.subclass.fragmentHashes,
     perkHashes: env.base.artifact.selectedPerkHashes,
     weapons: [],
+    aspectHashes: [],
   }, bound)];
   const completed: SolverState[] = [];
   // Global dedup: a build key seen in any round is never expanded again, even via
