@@ -92,6 +92,48 @@ identical-scoring states.
 pieces the build can use, so `(S,4)` with only a tagged 2-piece stops being dominated and an
 untagged bonus stops being inert.
 
+### Why 54 of 112 bonuses are untagged — measured, not assumed
+
+Checked at the user's prompting, since "every set has a 4-piece bonus" and "29 of 56 four-piece
+bonuses are tagged" can look like the same claim contradicting itself. They are not: **all 56 sets do
+have a 4-piece bonus**; what varies is whether our keyword scanner finds anything in it.
+
+The 54 untagged bonuses (27 two-piece, 27 four-piece) all have non-empty descriptions. Their effects
+are outside the synergy keyword model **by design**:
+
+| Effect present in untagged bonuses | Bonuses |
+| --- | --- |
+| weapon handling / stability / reload / aim assist | 15 |
+| flinch resistance | 8 |
+| damage resistance or reduction | 7 |
+| healing not named `cure` / `restoration` | 7 |
+| special ammo | 2 |
+| super energy | 1 |
+
+These are stat and survivability effects with no keyword for a synergy graph to chain through, so
+excluding them from the pool costs nothing. Examples: `Per Audacia · Sublime Transit` ("increases
+mobility and grants enhanced sprint speed and slide distance"), `Crota's Memory · Power of the Son`
+(progressive flinch and damage resistance).
+
+### ⏭️ FOLLOW-UP found here, deliberately OUT OF SCOPE: two missing vocabulary entries
+
+`KEYWORD_VOCABULARY` + `TRIGGER_VOCABULARY` (`scripts/ingest/keywords.ts`) total **33 entries** and
+omit two real buildcrafting currencies:
+
+| Missing keyword | Untagged set bonuses | Untagged **perks** |
+| --- | --- | --- |
+| `void_breach` | 2 | **26** |
+| `armor_charge` | 2 | **56** |
+
+The gap is **systemic, not set-specific** — Armor Charge is a major currency the whole engine is
+currently blind to. Adding both would tag only 4 of the 54 untagged bonuses, so it does not change
+this design: the pool is DERIVED from tags rather than hardcoded, so it would widen from 58 on its
+own after a re-ingest, with no code change here.
+
+Out of scope because it is an ingest/vocabulary change requiring a re-ingest and affecting every
+dimension. It should be scheduled on its own, with the mutation-and-floor discipline the ingest
+repair established.
+
 ## Scope
 
 **In scope**
@@ -308,6 +350,11 @@ measurement decides it and the reasoning survives either way.
 
 ## Open questions
 
-None blocking. Two deliberate deferrals are recorded above: the dominance exclusions and the
-terminal-routing argument both need revisiting when SP4 lands, and the missing `setHash` on the three
-event class items is parked as unverified with no bearing on this work.
+None blocking. Deliberate deferrals recorded above:
+
+- The dominance exclusions and the terminal-routing argument both need revisiting when **SP4** lands.
+- **`void_breach` and `armor_charge` are missing from the keyword vocabulary** (26 and 56 untagged
+  perks respectively). Needs its own scheduled slice and a re-ingest; widens this pool for free when
+  it happens.
+- The missing `setHash` on the three event class items is parked as unverified, with no bearing on
+  this work.
