@@ -12,7 +12,7 @@ import { solve, type SolverContext } from "@/lib/solver";
 
 const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.json"));
 
-// OBSERVED on this dataset (deterministic across runs): 5567 calls. Ceiling ~2x for
+// OBSERVED on this dataset (deterministic across runs): 5437 calls. Ceiling ~2x for
 // season-drift headroom. The exotic dimension adds a ~38-element reach union where a real
 // build contributes ONE exotic, so this is the tripwire for that looseness.
 const EXOTIC_BOUND_CALL_CEILING = 12_000;
@@ -23,12 +23,17 @@ const EXOTIC_BOUND_CALL_CEILING = 12_000;
 // is fully expanded, so they don't dampen this), while the closed baseline never touches
 // exoticPool at all. Growing the pool legitimately (season re-ingest) grows this ratio too.
 //
-// Measured today: 2,136 closed -> 5,567 open = 2.61x, with a pool of 47 exotics/class.
+// Measured today: 2,006 closed -> 5,437 open = 2.71x, with a pool of 47 exotics/class.
+// (Was 2,136 -> 5,567 = 2.61x before the stasis + placeholder ingest repair. BOTH sides
+// fell by ~130 calls because the repair removed 12 no-op "Empty Fragment Socket" entries
+// from the fragment pool; the ratio rose slightly because the same absolute drop is a
+// larger fraction of the smaller closed baseline. The exotic dimension itself did not
+// change — a useful reminder that this ratio moves when EITHER side's pool moves.)
 //
 // 3.5 was picked to catch the regression band the absolute ceiling above cannot see (an
-// open-side cost of 8,000-11,000 against the fixed 2,136 closed baseline lands at
-// 3.75-5.15, i.e. > 3.5) — NOT for drift headroom. As a side effect it tolerates roughly
-// 28% pool growth (47->60 =~ 3.34) and will trip somewhere before ~49% growth (47->70 =~ 3.9).
+// open-side cost of 8,000-11,000 against the fixed ~2,000 closed baseline lands at
+// 4.0-5.5, i.e. > 3.5) — NOT for drift headroom. As a side effect it tolerates roughly
+// 28% pool growth (47->60 =~ 3.47) and will trip somewhere before ~40% growth.
 //
 // HOW TO DIAGNOSE A FAILURE: first check the per-class exotic pool size (env.exoticPool /
 // deriveExoticArmorPool for this class) against the 47 measured here.

@@ -26,6 +26,7 @@ import type {
   Aspect,
   Element,
   Fragment,
+  GuardianClass,
   Hash,
   KeywordTags,
   Mod,
@@ -78,6 +79,23 @@ const ELEMENTS_BY_SPECIFICITY: Element[] = [
 function elementFromIdentifier(identifier: string): Element | undefined {
   const lower = identifier.toLowerCase();
   return ELEMENTS_BY_SPECIFICITY.find((element) => lower.includes(element));
+}
+
+/**
+ * Infer the Guardian class from a subclass plug's `plugCategoryIdentifier` prefix
+ * ("hunter.arc.aspects" → hunter), or `undefined` for class-agnostic categories
+ * ("shared.void.fragments").
+ *
+ * MEASURED: `item.classType` is `3` (Unknown) on **all 81** aspect plugs, so
+ * `guardianClassFromType` can never recover an aspect's class — the identifier prefix is
+ * the only carrier. This matters because aspect pools are class-specific: without it a
+ * solver choosing aspects would offer Warlock aspects to a Titan.
+ */
+function classFromIdentifier(identifier: string): GuardianClass | undefined {
+  const prefix = identifier.toLowerCase().split(".")[0];
+  return prefix === "hunter" || prefix === "titan" || prefix === "warlock"
+    ? prefix
+    : undefined;
 }
 
 /** Concatenate an item's descriptive text with its referenced sandbox perks. */
@@ -248,7 +266,9 @@ function transformAspects(
       name: name(item),
       icon: icon(item),
       element: element === "kinetic" ? "prismatic" : element,
-      classType: c.guardianClassFromType(item.classType),
+      // Identifier prefix first — `item.classType` is Unknown on every aspect plug
+      // (see `classFromIdentifier`), so the manifest field alone yields "any" for all 81.
+      classType: classFromIdentifier(identifier) ?? c.guardianClassFromType(item.classType),
       fragmentSlots,
       tags: tag({ text: itemText(item, perks), element }),
     });

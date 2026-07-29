@@ -64,6 +64,28 @@ export function guardianClassFromType(classType: number): GuardianClass {
 /** What role a plug item plays, inferred from its `plugCategoryIdentifier`. */
 export type PlugKind = "aspect" | "fragment" | "mod" | "other";
 
+/**
+ * Is this a placeholder "Empty … Socket" plug rather than buildcrafting content?
+ *
+ * MEASURED on manifest `244213.26.06.29.2000-1-bnet.65583` across all 205 aspect/fragment
+ * plugs: the 31 placeholders carry an **empty `itemTypeDisplayName`** with no
+ * `investmentStats` and no `perks`, while all 174 real plugs carry a non-empty type name
+ * ("Solar Aspect", "Stasis Fragment", …) and both arrays non-empty. Zero overlap on any of
+ * the three, so the type-name test alone is exact; it is preferred because it keys on the
+ * plug having no item TYPE (locale-safe — only emptiness is tested, never the text).
+ *
+ * ⚠️ `displayProperties.description` is NOT a discriminator and is inverted: every real
+ * plug has an EMPTY description and every placeholder has one. Do not "improve" this by
+ * switching to a description check.
+ *
+ * Excluded for the same reason as dummy items: they are equippable in game but they are
+ * not content, and the solver would otherwise treat "Empty Aspect Socket" as a choosable
+ * aspect and "Empty Fragment Socket" as a fragment worth a slot.
+ */
+function isPlaceholderPlug(item: DestinyInventoryItemDefinition): boolean {
+  return !item.itemTypeDisplayName;
+}
+
 const values = <T>(table: Record<number, T> | undefined): T[] =>
   table ? Object.values(table) : [];
 
@@ -219,8 +241,24 @@ export function createClassifier(slice: ManifestSlice): Classifier {
       (item.sockets?.socketEntries?.length ?? 0) > 0,
     plugKind: (item) => {
       const id = item.plug?.plugCategoryIdentifier ?? "";
-      if (id.includes("aspects")) return "aspect";
-      if (id.includes("fragments")) return "fragment";
+      // Stasis is the only element that does not use the `*.<element>.aspects` /
+      // `shared.<element>.fragments` naming — MEASURED: its aspects are `*.stasis.totems`
+      // (4 per class = 12) and its fragments `shared.stasis.trinkets` (17). Matching only
+      // "aspects"/"fragments" dropped every stasis aspect and fragment from the dataset
+      // while `SubclassElement` still admits "stasis". The other stasis categories
+      // (class_abilities, melee, movement, supers, grenades) must stay "other".
+      const aspectCategory = id.includes("aspects") || id.includes("totems");
+      const fragmentCategory = id.includes("fragments") || id.includes("trinkets");
+      if (aspectCategory || fragmentCategory) {
+        // An "Empty Aspect Socket" lives in a real aspect category, so this must be tested
+        // INSIDE the branch rather than up front. Deliberately scoped to aspects/fragments:
+        // that is the only population `isPlaceholderPlug` was measured against.
+        // ⚠️ Mods have the same problem ("Empty Mod Socket" is in `data/mods.json`) but the
+        // discriminator is UNMEASURED there, so mods are left exactly as they were. Measure
+        // before extending this — slice 2c, which makes mods solver-chosen, is when it bites.
+        if (isPlaceholderPlug(item)) return "other";
+        return aspectCategory ? "aspect" : "fragment";
+      }
       if (id.startsWith("enhancements")) return "mod";
       return "other";
     },

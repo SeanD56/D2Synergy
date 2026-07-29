@@ -169,3 +169,64 @@ describe.runIf(hasDataset)("dataset contract — curated spot-checks", () => {
       .toBeGreaterThan(0);
   });
 });
+
+/**
+ * Subclass-plug coverage floors — the repair that gave the dataset Stasis and removed the
+ * "Empty … Socket" placeholders.
+ *
+ * These exist because the previous shape was green and wrong in a way nothing caught:
+ * `SubclassElement` admits "stasis", but `plugKind` matched only "aspects"/"fragments"
+ * while the manifest files Stasis aspects under `*.stasis.totems` and Stasis fragments
+ * under `shared.stasis.trinkets`. So every Stasis build resolved to an EMPTY aspect and
+ * fragment pool — reported as an ordinary `feasible: false`, indistinguishable from a
+ * genuinely over-constrained build. Meanwhile 18 of 81 aspects and 12 of 95 fragments
+ * were placeholder sockets the solver could "choose".
+ *
+ * Measured on manifest 244213.26.06.29.2000-1-bnet.65583: 75 aspects (25 per class, 4 per
+ * class+element and 5 for prismatic), 99 fragments, zero placeholders.
+ */
+describe.runIf(hasDataset)("dataset contract — subclass plug coverage", () => {
+  let ds: DerivedDataset;
+  beforeAll(async () => { ds = await loadDataset(); });
+
+  /** Every element a build may pin. Each must have BOTH aspects and fragments to complete. */
+  const SUBCLASS_ELEMENTS = ["arc", "solar", "void", "stasis", "strand", "prismatic"] as const;
+
+  it.each(SUBCLASS_ELEMENTS)("has aspects for every class on %s", (element) => {
+    for (const classType of ["hunter", "titan", "warlock"] as const) {
+      const pool = ds.aspects.filter(
+        (a) => a.element === element && (a.classType === classType || a.classType === "any"),
+      );
+      // >= 2 because the game floor is exactly two aspects: a pool of 1 cannot complete.
+      expect(pool.length, `${classType}/${element} aspect pool`).toBeGreaterThanOrEqual(2);
+    }
+  });
+
+  it.each(SUBCLASS_ELEMENTS)("has fragments for %s", (element) => {
+    expect(ds.fragments.filter((f) => f.element === element).length).toBeGreaterThanOrEqual(8);
+  });
+
+  it("carries a real Guardian class on every aspect — never the 'any' fallback", () => {
+    // `item.classType` is Unknown(3) on all aspect plugs, so this passes only while the
+    // identifier-prefix parse works. If it regresses, all 75 collapse back to "any" and a
+    // solver-chosen-aspect dimension would offer Warlock aspects to a Titan.
+    expect(ds.aspects.filter((a) => a.classType === "any")).toEqual([]);
+    for (const classType of ["hunter", "titan", "warlock"] as const) {
+      expect(ds.aspects.filter((a) => a.classType === classType).length)
+        .toBeGreaterThanOrEqual(20);
+    }
+  });
+
+  it("excludes placeholder Empty-Socket plugs from aspects and fragments", () => {
+    const placeholders = [...ds.aspects, ...ds.fragments].filter((x) => /^Empty .* Socket$/.test(x.name));
+    expect(placeholders).toEqual([]);
+    // Structural corollary: a real aspect always grants fragment slots. This is the
+    // discriminator's own invariant, asserted independently of the name test above.
+    expect(ds.aspects.filter((a) => a.fragmentSlots === 0)).toEqual([]);
+  });
+
+  it("keeps the measured entity floors", () => {
+    expect(ds.aspects.length).toBeGreaterThanOrEqual(70); // [measured 75]
+    expect(ds.fragments.length).toBeGreaterThanOrEqual(90); // [measured 99]
+  });
+});
