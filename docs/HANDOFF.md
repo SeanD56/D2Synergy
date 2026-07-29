@@ -4,23 +4,97 @@
 
 ## Where we are
 
-**`main` @ `d246a99`, clean, 0 unpushed, 292/292 green (43 files). Four units shipped this session; the aspect dimension is the next task and its design is already settled below.**
+**SP3b · slice 2c (mods) — on `main`, tree clean, 0 unpushed, 371/371 green; last code commit `28d14d8` (this doc is the commit after it). NEXT: the mod ingest fix, then the beam dimension, in that order (spec below).**
 
 | Unit | Status |
 | --- | --- |
-| `Selection` refactor (prerequisite for slice 3) | ✅ shipped, merge `9260b2e` |
-| SP3b **slice 4** — infeasibility explanation | ✅ shipped, `fc2588c` |
-| **Ingest repair** — Stasis, placeholders, aspect class | ✅ shipped, `2aec005` |
-| Aspect pool/reach/dynamic-cap helpers | ✅ shipped, `61a216c` — **not wired** |
-| Slice 3 — solver-chosen **aspects** | ✅ shipped, merge `7eedef4` |
-| Slice 3 — solver-chosen **artifact** | ⚠️ **QUESTION THE SCOPE FIRST** — see below |
-| Slice 2c — mods, **data half** | ✅ shipped — `socket-types.json` side table |
-| Slice 2c — mods, **capacity oracle** | ✅ shipped — exact matching + energy budget |
-| Slice 2c — mods, **solver dimension** | ⏭️ **NEXT** — but see the open design fork below |
+| `Selection` refactor | ✅ `3824177` |
+| Slice 4 — infeasibility explanation (8 reason codes) | ✅ `fc2588c` |
+| Ingest repair — Stasis, placeholders, aspect class | ✅ `2aec005` |
+| Slice 3 — solver-chosen **aspects** + dynamic fragment cap | ✅ `7eedef4` |
+| Slice 2c — socket-type side table (data half) | ✅ `c70da9d` |
+| Slice 2c — mod capacity oracle (matching + energy) | ✅ `a18877a` |
+| Slice 2c — canonical Armor 3.0 per-slot layout | ✅ `2e30e55` |
+| **Armor 3.0 restriction** on the exotic pool | ✅ `28d14d8` |
+| Slice 2c — **mod ingest fix + beam dimension** | ⏭️ **NEXT** |
+| Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
+| ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `357/357 passing, 47 files, 0 failing`.** Run `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`. Anything less is a regression — this session ended fully green with nothing in flight.
+**Test baseline: `371/371 passing, 48 files, 0 failing`.** Run:
+`npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
+Anything less is a regression — this session ended fully green with **nothing in flight** and an
+empty working tree.
 
-**⚠️ The weapons cost tripwire is now `10,527`, not 10,842.** Legitimately re-measured after the ingest repair shrank the fragment pool (12 no-op placeholders removed ⇒ less real branching). Full history and the re-measure recipe are in `tests/solver/integration-weapons.test.ts`; the exotic marginal factor likewise moved 2.61x → **2.71x**.
+**Measured invariants (re-verify after any dataset or pool change):**
+- Weapons cost tripwire: **exactly 10,527** bound calls (history + recipe in the test).
+- Exotic open/closed marginal factor: **2,446 → 6,643 = 2.72x**, pool 47/class.
+- Aspect open/closed marginal factor: **8,049 → 6,643 = 1.21x**.
+
+## Doc pointers
+
+**`docs/HANDOFF.md` (this file) is the source of truth for EXECUTION** of slice 2c — there is no
+spec/plan pair for it, because the measurements that shape it live here. For earlier slices the
+**plan wins** over the spec (it carries the reviewed code):
+- Slice 2b (exotic armour): `docs/superpowers/plans/2026-07-27-phase2-sp3b-slice2b-exotic-armor-solver.md` · spec `…-design.md`
+- Slice 2a (dataset signals): `docs/superpowers/plans/2026-07-24-phase2-sp3b-slice2a-dataset-signals.md` — contains the measured floors table
+- Slice 1 (weapons): `docs/superpowers/plans/2026-07-24-phase2-sp3b-weapons-solver.md`
+- SP3a (solver core): `docs/superpowers/plans/2026-07-23-phase2-sp3a-solver-beam-search.md`
+- Architecture "why": `docs/designs/2026-07-22-d2synergy-buildcrafting-design.md`
+- Full per-slice detail and code-location maps are in the "what shipped" sections lower in this file.
+
+## Active / next — slice 2c, in this order
+
+**Ordering is DECIDED (user, 2026-07-29): Armor 3.0 restriction ✅ done → mod ingest fix → beam
+dimension, measuring cost immediately after wiring.**
+
+### Step 1 — mod placeholder exclusion, at ingest, inside this slice
+
+`data/mods.json` still contains `Empty Mod Socket` entries. Without this the solver will "choose"
+an empty socket — the exact bug the aspect/fragment repair fixed. Placeholder exclusion was
+deliberately SCOPED to aspects/fragments because the mod population was unmeasured, and a test in
+`tests/ingest/plug-kind.test.ts` pins that scope, so it will redden when you widen it — that is
+intended, update it.
+
+**Measure the discriminator for mods FIRST** (do not assume the aspect/fragment one transfers):
+for aspects/fragments it was an empty `itemTypeDisplayName`, with `description` being *inverted*
+and useless. Re-run that comparison over the mod population before choosing.
+
+**Done when:** a real-data contract floor asserts zero `/^Empty .* Socket$/` entries in
+`ds.mods`, the discriminator is mutation-proven, and the re-ingest is confirmed zero-churn by
+byte-comparing every other `data/*.json` against a backup (the manifest version is still
+`244213.26.06.29.2000-1-bnet.65583`, so churn should be nil).
+
+### Step 2 — the mod beam dimension
+
+Wire it, then **measure real-data cost immediately** — slice 2b's proven task order, and this is
+the widest dimension yet: 5 slots × 4 sockets over 512 mods, against aspects (≤5) and exotics (47).
+
+- **Model mods PER SLOT** using `canonicalModCapacityModel(slot)` — exact for Armor 3.0, not an
+  approximation (990/999 pieces; all 9 exceptions are already-out-of-scope exotic families). This
+  is what lets mods work without the solver choosing pieces.
+- Feasibility/pruning through `evaluateModCapacity` / `canAddMod`.
+- `Selection.modHashes` + a `mod` candidate kind, appended to `stateKey` only when non-empty so
+  closed-dimension keys stay byte-identical (the `|wpn:`/`|exo:`/`|asp:` rule).
+- Pool per slot: mods whose `slotRestriction` matches, plus general mods. 29 of 35 mod categories
+  are socket-addressable; the 6 that are not are `ghosts_*`/`season_opulence` Ghost-shell mods.
+
+**⚠️ UNDERFILL IS LEGAL HERE, unlike every dimension so far.** Four sockets exist but four mods at
+3 energy is 12 > 11, so a full mod set is often infeasible — the energy budget binds before the
+sockets do (pinned by a test). This is the situation SP3a warned about. **Terminal-only routing
+still works**, because "no addable mod" IS a terminal state: the beam yields **maximal** rather
+than **full** mod sets, and since a mod never has a downside, maximal is optimal. Do not add
+best-partial tracking; do add a clause to `dimensionsAllDecided` only if a prune can remove mod
+moves the way the ammo prune does for weapons.
+
+**The gate this dimension needs:** ask single-stage vs staged first. Mods look **single-stage**
+(choosing a mod decides it outright), so the reach term needs an **admissibility property test**,
+not an outcome gate — mirror `tests/solver/beam-aspects.test.ts`'s bottom describe block, and watch
+the `Math.max(...[])` = `-Infinity` vacuity trap.
+
+**Done when:** every completed build's mods pass `evaluateModCapacity` per slot; the validator
+still accepts every emitted build; the weapons tripwire is still **exactly 10,527**; the
+admissibility property test is mutation-proven; and the measured marginal cost is recorded in the
+test with a re-measure recipe.
 
 ### ✅ Aspect dimension SHIPPED — and the bug its mutation pass found
 
@@ -77,10 +151,12 @@ recorded here rather than assumed.
 **999 pieces carry the `armor_tiering` socket** — 858 legendary + 141 exotic, spread evenly by
 slot (177-215 each) — against 6029 total. Identify them by that socket (`armor_tiering` in the
 socket-type side table); the `armor_tiering` socket is present on exactly those 999 and there is
-no overlap with any bare-`mods` socket family. **⚠️ Consequence to expect: the exotic pool
-shrinks.** Slice 2b derives 47 exotics/class after name-dedup from all 348; restricting to the
-141 Armor-3.0 exotics will cut that, and slice 2b's measured pool figure and marginal-cost
-ratios will need re-measuring when this lands.
+no overlap with any bare-`mods` socket family. **✅ SHIPPED (`28d14d8`), and the warning first recorded
+here was WRONG — measured.** Restricting to Armor 3.0 does NOT shrink the exotic pool: 47 distinct
+names per class before and after, because the 141 Armor 3.0 exotics are exactly ONE PER NAME (the
+manifest's 2.47x duplication is legacy copies). Cost figures re-measured and unchanged. It also
+turns slice 2b's "richest tags, then lowest hash" dedup heuristic into a principled rule. Derived
+from the `armor_tiering` socket via `isArmor30`, so it needed no re-ingest and no new field.
 
 **2. Total stat distribution is the only thing that matters (confirmed).** So the stat model is a
 DP over the stat-sum vector across 5 slots, NOT an enumeration of per-slot profiles. This is what
@@ -317,7 +393,7 @@ Phase 2 sub-projects. Order + status:
 - **SP3b — remaining solver dimensions** (sliced). **Slice 1 — weapons (perk-roll membership + roll selection)** ✅ shipped + pushed. **Slice 2a — dataset signals** ✅ shipped + pushed (merge `47d6a35`; see "SP3b slice 2a — what shipped"). **Slice 2b — solver-chosen exotic armor** ✅ implemented + reviewed, awaiting merge (see "SP3b slice-2b — what shipped"). **Slices 2c-4 ⏭️ NEXT:** mods (and set bonuses) in the *solver*; solver-chosen artifact/aspects (dynamic cap); full infeasibility *explanation*. Extends the SP3a beam.
 - **SP4 — armor stat optimizer** (DIM-algorithm port, web worker; explicitly delayable). SP3a defined the `StatFit` seam it fills (`neutralStatFit → 0` stub live now).
 
-## Doc pointers
+## Code location map (per slice)
 - **SP3b slice 2b (implemented, awaiting merge) — SOURCE OF TRUTH FOR EXECUTION was the plan:** `docs/superpowers/plans/2026-07-27-phase2-sp3b-slice2b-exotic-armor-solver.md` (7 TDD tasks, full code inline). Design/"why": `docs/superpowers/specs/2026-07-27-phase2-sp3b-slice2b-exotic-armor-solver-design.md`. **If they disagree, the plan wins** — it carries the reviewed and corrected code; three spec-review fixes landed in `390355f`.
 - **SP3b slice 2a (shipped) spec/plan:** `docs/superpowers/specs/2026-07-24-phase2-sp3b-slice2a-dataset-signals-design.md` (contains the **measured floors** table) · `docs/superpowers/plans/2026-07-24-phase2-sp3b-slice2a-dataset-signals.md`. Findings/review ledger: `.superpowers/sdd/2026-07-24-phase2-sp3b-slice2a-dataset-signals/progress.md` (git-ignored scratch; records the stop-condition diagnosis and every deviation).
 - **Phase 2 · SP3a spec/plan:** `docs/superpowers/specs/2026-07-23-phase2-sp3a-solver-beam-search-design.md` · `docs/superpowers/plans/2026-07-23-phase2-sp3a-solver-beam-search.md`. **Solver code:** `src/lib/solver/` — `types.ts` (`SolverContext`/`SolveOptions`/`SolveResult`/`RankedBuild`/`StatFit`/`BoundFn`), `stat-fit.ts` (`neutralStatFit`), `candidates.ts` (`deriveFragmentPool`/`deriveArtifactPerkPool`/`generateCandidates`), `beam.ts` (`buildSolverEnv`/`makeState`/`expand`/`beamSearch`/`stateKey`, `SolverEnv`/`SolverState`), `solve.ts` (`solve`), `index.ts` (public barrel). **Bound:** `src/lib/synergy/bound.ts` (`synergyUpperBound`, exported from `@/lib/synergy`). Tests in `tests/solver/` + `tests/synergy/bound.test.ts`.
@@ -412,6 +488,13 @@ Adds **one open dimension** to the beam: the solver now chooses `armor.exoticHas
 
 ## Future / parked — SP3b slices 2c-4, in order
 
+**Open items surfaced this session — not blockers for slice 2c, but do not re-litigate them from scratch:**
+- **`artifacts.json` has no active-season marker.** Fields are only `hash/icon/kind/name/tiers`, so nothing identifies which of the 7 is live. A wrong default recommends inaccessible perks, so the UI cannot pick one until this is sourced. Needs a decision on where the fact comes from (manifest field not yet found, external source, or user selection).
+- **Set bonuses remain blocked on `armor.pieces`**, which the solver never writes. Additionally, DIM models — and our own data confirms — a **set-bonus SELECTOR socket** (`selectors`, on 3 exotic class items) that lets one piece wildcard a missing set piece. Ignoring it would over-report infeasibility.
+- **SP4 / stat prescription needs armour STAT VALUES ingested.** `Armor` carries `statGroupHash` on all 6029 pieces but no values. **The decisive unmeasured number: do Armor 3.0 archetypes fix the primary/secondary stat pairing?** If so the per-slot profile space is ~6-12 rather than 240, which is what makes prescription cheap. Note the archetype socket is absent from `Armor.modSocketHashes` (0 of 6029, though the manifest has 999), so it must be read from the manifest or added to the ingest.
+- **UI is unstarted.** Next.js + React was requested; `AGENTS.md` requires reading `node_modules/next/dist/docs/` before writing any Next.js code, since this version has breaking changes vs training data. Blocked in practice on the artifact-default question above for any build-editor default.
+- **`Armor.modSocketHashes` is a PARTIAL socket view** — general/slot-specific/masterwork but not the archetype socket. Do not treat it as an item's complete socket set.
+
 **0. Wire the aspect dimension** — see "NEXT TASK" at the top. The `Selection` refactor and slice 4 are both ✅ shipped; the aspect helpers exist and are tested but are not wired.
 
 Then, extending the SP3a beam via brainstorm → spec → plan → SDD (same flow as slices 1/2a/2b):
@@ -442,6 +525,13 @@ Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[
 - **Explicitly deferred (do NOT build now):** ~~champion/anti-barrier coverage~~ — **DONE in slice 2a** (`KeywordTags.championStuns`, 188 entities; the "text-only data, needs extraction pass" concern was the extraction pass slice 2a performed). Note the manifest currently has **zero** `/anti-barrier/` artifact perks, so any anti-barrier gate must key off `championStuns`, not perk names. Still deferred: **exotic class-item spirit pools** — **wanted, but POST-RELEASE, far down the line** (decided 2026-07-27; see the top of this file. The combos are arduous random-rolled farms most players ignore, and spirits are *partial* mimics, so their tags must never be derived from the original exotic's text); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); ~~mod energy legality (deprecated)~~ — **WRONG, corrected 2026-07-29: energy capacity is LIVE as a constant 11; only energy AFFINITY is deprecated. See the mod-energy section at the top;** OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
 
 ## Decisions resolved (do not relitigate)
+- **Solver-chosen artifact is DROPPED from scope (user, 2026-07-29).** The artifact stays pinned. *Why:* the constraint that actually mattered — perks tied to their own artifact — already exists and is now test-verified (`tests/solver/artifact-scoping.test.ts`), keeping the perk space at one artifact's 21 rather than the 138 union. Choosing among the 7 artifacts would recommend perks the player cannot access, since only one is active per season. **Still open and separate:** `artifacts.json` has no active-season marker, so nothing can pick a default — see Future/parked.
+- **Armor 3.0 only, and it precedes the mod dimension (user, 2026-07-29).** ✅ shipped `28d14d8`. *Why prune:* it is the only effectively usable armour. *Why first:* it changes what the solver considers, so measuring mod cost once against final data beats measuring twice. Derived from the `armor_tiering` socket rather than ingested, so no re-ingest and no new field. Measured to be a no-op on exotic pool size, which also makes dedup principled.
+- **Mods are modelled PER SLOT, not per piece (user, 2026-07-29).** *Why it is exact rather than approximate:* within Armor 3.0 the mod layout is 1 general + 3 slot-specific for 990 of 999 pieces, and all 9 exceptions are already-out-of-scope exotic families (3 Aeon arms, 3 exotic class items, 3 set-bonus-selector class items). This is what lets mods work at all, since the solver writes only `armor.exoticHash` and never `armor.pieces`.
+- **Mod placeholder exclusion happens at INGEST, inside the mod slice (user, 2026-07-29).** *Why not a pool-derivation filter:* leaving `Empty Mod Socket` in the data leaves it wrong for every other consumer and re-introduces a name-based filter where a structural one is available. **Measure the mod discriminator first** — the aspect/fragment one may not transfer, and `description` was *inverted* there.
+- **Cost is measured immediately AFTER wiring a dimension, never before or at the end (user, 2026-07-29).** *Why:* it is slice 2b's proven task order, recorded there as load-bearing. A pre-measurement harness duplicates what the wiring gives for free, and measuring at the end means later tasks are built on an unverified assumption.
+- **Masterwork and artifice are assumed USED, split by concern (user, 2026-07-29).** Artifice needs no oracle work — it already falls out of category-driven matching (9 mods at `energyCost: 0`, pinned by tests) — and masterwork is already what `ARMOR_ENERGY_CAPACITY = 11` encodes. Their STAT contributions are SP4 work; the real blocker there is that no armour stat VALUES are ingested at all.
+- **OAuth is a PRESENTATION layer over a global prescription, not a search input (user, 2026-07-29).** The solver searches the dataset and prescribes a target stat distribution; owned-gear data annotates it ("you own this / farm this / 5 points off"). Keeps auth out of the hot path so the solver stays deterministic, cacheable and testable. *This retracts an earlier suggestion in this file to do OAuth before SP4*, which was premised on porting DIM's armour enumeration — a layer we are now not porting.
 - **`feasible` means "the solver produced at least one completed build", NOT "the pinned inputs are satisfiable" (slice 4).** *Why:* beam search is incomplete, so the solver cannot prove unsatisfiability. `NO_COMPLETION_FOUND` is therefore a statement about the SEARCH; all seven other reason codes are proofs about the INPUTS. Keep that split visible in the type docs — collapsing it would let the solver overclaim.
 - **Infeasibility causes ACCUMULATE rather than short-circuit (slice 4).** *Why:* a UI wants "fix these three things", and per-slot reporting means a build with two unsatisfiable weapon slots names both. `resolveSolverEnv` is the single source of truth; `buildSolverEnv` is a thin projection kept so beam-level callers and tests did not have to change.
 - **Placeholder-plug exclusion is scoped to aspects/fragments ONLY (ingest repair).** *Why:* the discriminator (empty `itemTypeDisplayName`) was measured against those 205 plugs and nothing else. Mods have the same defect but an unmeasured discriminator, so extending it blindly could drop legitimate mods. A test pins the scope; measure first, then widen — that is slice 2c's job.
@@ -486,6 +576,8 @@ Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[
 - **(Phase 0, still binding):** Approach B static ingestion committed to git; `bungie-api-ts` + `getDestinyManifestSlice`, `X-API-Key` only; energy affinity ignored; synergy rules-first w/ embedding-ready seam; solver = decompose + inverted indexes + beam search (armor-stats = swappable DIM port). Names: repo `D2Synergy`, npm `d2synergy`.
 
 ## Process + gotchas
+- **⚠️ A VACUOUS MUTATION IS A SYMPTOM, NOT A VERDICT — this fired twice this session.** When removing a guard reddens NOTHING, ask what the tests fail to cover before concluding the code is merely defensive. (1) Deleting the aspect clause from `dimensionsAllDecided` reddened nothing, which exposed that all three cap comparisons ignored pinned aspects — a build with one pinned aspect got two more, emitting a 3-aspect illegal build. (2) In `artifact-scoping.test.ts`, simulating an ingest that unions every artifact's perks leaves the per-artifact "leak" assertions vacuous (no perk is exclusive to another), so the anti-vacuity test is the one doing the work. **Always pair a coverage sweep with an assertion that it observed both outcomes.**
+- **⚠️ `sed` silently fails on targets containing `|` and reports a meaningless green.** Happened this session mutating a `||` expression: the grep-confirm step caught it. Use `python` for any mutation whose target contains shell/regex metacharacters, and ALWAYS grep-confirm before interpreting a run.
 - **⚠️ TESTING THE BEAM: a `beamSearch`-level test CANNOT catch a dropped state-forward — the search SELF-HEALS.** Discovered while proving slice 2b's forwarding invariant. If `expand` drops an already-decided dimension, `generateCandidates` simply re-offers that dimension's moves at the next level and the search re-picks it, so the final build looks correct while the state threading is broken. **Only a direct `expand()` test catches it** — build a state with the dimension already decided (so no candidate of that kind exists to mask the drop), call `expand`, and assert every child carries the decision. This generalises to every dimension slice 3 adds; reach for the direct-`expand` instrument, not an end-to-end one.
 - **Mutation-proof recipe, and the trap in it:** back the file up to the **scratchpad** (not `/tmp`), apply the mutation, then **`grep` to confirm it actually applied** before interpreting the run — a `sed`/edit that silently matches nothing leaves the file intact and the test green, which reads *identically* to "the mutation didn't matter". Restore, then confirm `git diff` on the mutated file is empty.
 - **`Math.max(...[])` is `-Infinity`** — any assertion of the form `expect(x).toBeGreaterThanOrEqual(Math.max(...list))` passes vacuously when `list` empties. Slice 2b's admissibility gate had exactly this shape; it now derives `list` from the state under test *and* asserts the expected membership separately. Watch for it in any new bound/property test.
