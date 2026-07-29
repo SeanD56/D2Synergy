@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — on `main`, tree clean, 0 unpushed, 374/374 green; last code commit `5c913e5`. Step 1 (mod placeholder exclusion) is ✅ DONE. NEXT: step 2, the mod beam dimension (spec below).**
+**SP3b · slice 2c (mods) — on `main`, tree clean, 0 unpushed, 385/385 green; last code commit `670a2ed`. Step 1 ✅ and step 2's pool/reach helpers ✅. NEXT: wire the mod dimension into the beam (spec below) and measure its cost immediately.**
 
 | Unit | Status |
 | --- | --- |
@@ -20,7 +20,7 @@
 | Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `374/374 passing, 48 files, 0 failing`.** Run:
+**Test baseline: `385/385 passing, 49 files, 0 failing`.** Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -61,7 +61,16 @@ do-nothing `Solar Ordnance Mod` stubs). **Mods 512 → 451**, zero churn elsewhe
 10,527. Mutation-proven; contract floor added; `FLOOR_MODS_WITH_SLOT` re-pinned 280 → 250 with the
 reason recorded (count 316 → 279, ratio held at ~62%).
 
-### Step 2 — the mod beam dimension
+### Step 2a — mod pool + reach ✅ DONE (`670a2ed`)
+
+`src/lib/solver/mods.ts`: `deriveModPool(ctx, slot)` (derived from the slot's canonical layout, so
+it cannot drift from what the oracle enforces) and `deriveModReach(pool)`. New seam accessor
+`Lookup.modsForCategory(category)`, precomputed and hash-sorted, so the solver still never
+enumerates the dataset. Measured per slot: 59 helmet / 54 arms / 54 chest / 56 legs / 29 class,
+plus 21 general shared; 145 of 451 mods carry synergy tags. Pool tests bound BOTH sides
+(≥40, <120) so over-inclusion fails too; mutation-proven.
+
+### Step 2b — WIRE the mod dimension into the beam (the remaining work)
 
 Wire it, then **measure real-data cost immediately** — slice 2b's proven task order, and this is
 the widest dimension yet: 5 slots × 4 sockets over 512 mods, against aspects (≤5) and exotics (47).
@@ -69,11 +78,12 @@ the widest dimension yet: 5 slots × 4 sockets over 512 mods, against aspects (�
 - **Model mods PER SLOT** using `canonicalModCapacityModel(slot)` — exact for Armor 3.0, not an
   approximation (990/999 pieces; all 9 exceptions are already-out-of-scope exotic families). This
   is what lets mods work without the solver choosing pieces.
-- Feasibility/pruning through `evaluateModCapacity` / `canAddMod`.
+- Feasibility/pruning through `evaluateModCapacity` / `canAddMod`; pool/reach via
+  `deriveModPool` / `deriveModReach` (both ✅ already built and tested).
 - `Selection.modHashes` + a `mod` candidate kind, appended to `stateKey` only when non-empty so
   closed-dimension keys stay byte-identical (the `|wpn:`/`|exo:`/`|asp:` rule).
-- Pool per slot: mods whose `slotRestriction` matches, plus general mods. 29 of 35 mod categories
-  are socket-addressable; the 6 that are not are `ghosts_*`/`season_opulence` Ghost-shell mods.
+- `Build.armor.modHashes` is the field to write; note it is a FLAT list, so the per-slot
+  assignment is the solver's internal concern rather than something the Build records.
 
 **⚠️ UNDERFILL IS LEGAL HERE, unlike every dimension so far.** Four sockets exist but four mods at
 3 energy is 12 > 11, so a full mod set is often infeasible — the energy budget binds before the
