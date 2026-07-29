@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 401/401 green. Slice 2c is COMPLETE and optimised (11.73x -> 5.37x); the current-artifact blocker is RESOLVED. NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
+**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 412/412 green. Slice 2c COMPLETE + optimised; current-artifact RESOLVED; SP4's decisive archetype question ANSWERED. NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
 
 | Unit | Status |
 | --- | --- |
@@ -20,7 +20,7 @@
 | Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `401/401 passing, 51 files, 0 failing`.** Run:
+**Test baseline: `412/412 passing, 52 files, 0 failing`.** Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -461,7 +461,9 @@ Adds **one open dimension** to the beam: the solver now chooses `armor.exoticHas
 **Open items surfaced this session — not blockers for slice 2c, but do not re-litigate them from scratch:**
 - ~~**`artifacts.json` has no active-season marker.**~~ ✅ **RESOLVED** — `DatasetMeta.currentArtifactHash` + `Lookup.currentArtifact()`. The key was already in the repo unused: three comments noted that `DestinyArtifactDefinition` "returns only the current one" as a reason not to source artifacts from it. It holds exactly one entry but in a DISJOINT hash namespace (2894222926 vs our 23349941), so it bridges by NAME — the same shape as slice 1's weapon plugs. Three mutation-proven contract floors guard it.
 - **Set bonuses remain blocked on `armor.pieces`**, which the solver never writes. Additionally, DIM models — and our own data confirms — a **set-bonus SELECTOR socket** (`selectors`, on 3 exotic class items) that lets one piece wildcard a missing set piece. Ignoring it would over-report infeasibility.
-- **SP4 / stat prescription needs armour STAT VALUES ingested.** `Armor` carries `statGroupHash` on all 6029 pieces but no values. **The decisive unmeasured number: do Armor 3.0 archetypes fix the primary/secondary stat pairing?** If so the per-slot profile space is ~6-12 rather than 240, which is what makes prescription cheap. Note the archetype socket is absent from `Armor.modSocketHashes` (0 of 6029, though the manifest has 999), so it must be read from the manifest or added to the ingest.
+- **SP4 / stat prescription — the decisive question is ANSWERED (`0ca3eb3`).** Archetypes DO fix the primary/secondary pairing: **exactly 12, all distinct, covering all six stats** (now in `data/armor-archetypes.json` + `DerivedDataset.armorArchetypes`). So a piece's profile is **(archetype, tertiary stat, tertiary value) = 12 x 4 x 2 = 96 per slot**, not 240 — which with the DP-over-stat-totals approach makes prescription tractable.
+  **⚠️ BUT armour stat VALUES are NOT in the manifest and cannot be:** every Armor 3.0 item carries 4 `investmentStats` whose values are ALL ZERO (3,996 of 3,996 measured) because the roll is INSTANCE data. Two consequences: (a) a stat model must be built from (archetype + tertiary), never from item stats; (b) **owned-gear search cannot come from the static dataset at all** — even with OAuth, rolls need a live inventory call. That independently reinforces the global-prescription + OAuth-as-presentation decision.
+  What SP4 still needs: the standard roll VALUES (primary 30 / secondary 25 / tertiary 20 or 25 per the user) are balance numbers to confirm externally, plus the masterwork/artifice stat increments.
 - **UI is unstarted.** Next.js + React was requested; `AGENTS.md` requires reading `node_modules/next/dist/docs/` before writing any Next.js code, since this version has breaking changes vs training data. **No longer blocked** — the artifact default now comes from `Lookup.currentArtifact()`.
 - **`Armor.modSocketHashes` is a PARTIAL socket view** — general/slot-specific/masterwork but not the archetype socket. Do not treat it as an item's complete socket set.
 
