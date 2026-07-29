@@ -10,6 +10,14 @@ import { ASPECT_CAP } from "@/lib/solver/subclass";
 import { solve } from "@/lib/solver";
 
 /**
+ * Armor 3.0 marker. `deriveExoticArmorPool` accepts only Armor 3.0 pieces, identified by the
+ * `armor_tiering` tuning socket, so every exotic fixture here must carry one or the pool comes
+ * back empty. Registered in each stub dataset's `socketTypes` side table.
+ */
+const TIERING_SOCKET = 8800;
+const TIERING_SOCKET_TYPES = { [TIERING_SOCKET]: ["core.gear_systems.armor_tiering.plugs.tuning.mods"] };
+
+/**
  * Solver-chosen aspects — the beam wiring.
  *
  * The dimension is OPEN iff a `classType` is pinned AND fewer than `ASPECT_CAP` aspects
@@ -49,7 +57,7 @@ const frag = (hash: number, over: Partial<Fragment> = {}): Fragment => ({
  */
 const exotic: Armor = {
   kind: "armor", hash: 9000, name: "Exo", icon: "", slot: "helmet", tier: "exotic",
-  classType: "warlock", modSocketHashes: [], tags: EMPTY_TAGS,
+  classType: "warlock", modSocketHashes: [TIERING_SOCKET], tags: EMPTY_TAGS,
 } as Armor;
 
 function ctxWith(aspects: Aspect[], fragments: Fragment[] = []) {
@@ -58,7 +66,7 @@ function ctxWith(aspects: Aspect[], fragments: Fragment[] = []) {
   const ds = {
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
     subclasses: [], aspects, fragments, weapons: [], armor: [exotic],
-    armorSets: [], mods: [], artifacts: [artifact], perks: [], stats: [], plugTags: {},
+    armorSets: [], mods: [], artifacts: [artifact], perks: [], stats: [], plugTags: {}, socketTypes: TIERING_SOCKET_TYPES,
     indexes: {
       ...EMPTY_INDEXES, elementToItems,
       exoticToClassSlot: { [exotic.hash]: { classType: exotic.classType, slot: exotic.slot } },

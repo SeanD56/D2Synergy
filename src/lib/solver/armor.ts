@@ -17,8 +17,35 @@ import type { SolverContext } from "./types";
 const tagSize = (a: Armor) =>
   a.tags.produces.length + a.tags.consumes.length + a.tags.triggers.length;
 
+/** The socket-category substring that marks a piece as Armor 3.0 (its tuning socket). */
+const ARMOR_TIERING_CATEGORY = "armor_tiering";
+
+/**
+ * Is this an Armor 3.0 piece?
+ *
+ * Armor 3.0 is the only effectively usable armour (user, 2026-07-29), so the solver must only
+ * recommend it. Membership is DERIVED from data already emitted — the piece carries the
+ * `armor_tiering` tuning socket, resolvable through the socket-type side table — so this needs
+ * no re-ingest and no new field on `Armor`.
+ *
+ * Measured: exactly 999 of 6029 pieces qualify (858 legendary + 141 exotic).
+ */
+export function isArmor30(
+  piece: Armor,
+  socketCategories: (hash: Hash) => string[] | undefined,
+): boolean {
+  return (piece.modSocketHashes ?? []).some((h) =>
+    (socketCategories(h) ?? []).some((c) => c.includes(ARMOR_TIERING_CATEGORY)));
+}
+
 /**
  * Exotic armor legal for this class, deduped by name, hash-sorted.
+ *
+ * **Restricted to Armor 3.0.** Measured, and this is a no-op on pool SIZE: 47 distinct names per
+ * class both before and after, because the 141 Armor 3.0 exotics are exactly one per name — the
+ * manifest's 2.47x duplication (116 entries per class) is legacy copies. So the restriction also
+ * makes the dedup below PRINCIPLED rather than heuristic: it selects the current-generation entry
+ * by rule instead of by tag-richness tie-breaking.
  *
  * Measured on the slice-2a dataset: the manifest carries 116 exotic entries but only 47
  * distinct names per class (348 entries / 141 names overall — a 2.47x duplication factor),
@@ -55,6 +82,8 @@ export function deriveExoticArmorPool(
     if (pinnedHash !== undefined && hash !== pinnedHash) continue;
     const piece = ctx.lookup.armor(hash);
     if (!piece || piece.tier !== "exotic") continue;
+    // Armor 3.0 only — legacy duplicates of the same exotic are excluded outright.
+    if (!isArmor30(piece, ctx.lookup.socketCategories)) continue;
     const existing = byName.get(piece.name);
     const better =
       !existing ||
