@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 412/412 green. Slice 2c COMPLETE + optimised; current-artifact RESOLVED; SP4's decisive archetype question ANSWERED. NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
+**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 419/419 green. Slice 2c COMPLETE + optimised; current-artifact RESOLVED; archetype question ANSWERED; **first UI slice SHIPPED**. Remaining solver paths all need a product decision — see Future/parked. NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
 
 | Unit | Status |
 | --- | --- |
@@ -20,7 +20,7 @@
 | Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `412/412 passing, 52 files, 0 failing`.** Run:
+**Test baseline: `419/419 passing, 53 files, 0 failing`.** Also verify the app builds: `npx next build`. Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -468,7 +468,10 @@ Adds **one open dimension** to the beam: the solver now chooses `armor.exoticHas
 - **SP4 / stat prescription — the decisive question is ANSWERED (`0ca3eb3`).** Archetypes DO fix the primary/secondary pairing: **exactly 12, all distinct, covering all six stats** (now in `data/armor-archetypes.json` + `DerivedDataset.armorArchetypes`). So a piece's profile is **(archetype, tertiary stat, tertiary value) = 12 x 4 x 2 = 96 per slot**, not 240 — which with the DP-over-stat-totals approach makes prescription tractable.
   **⚠️ BUT armour stat VALUES are NOT in the manifest and cannot be:** every Armor 3.0 item carries 4 `investmentStats` whose values are ALL ZERO (3,996 of 3,996 measured) because the roll is INSTANCE data. Two consequences: (a) a stat model must be built from (archetype + tertiary), never from item stats; (b) **owned-gear search cannot come from the static dataset at all** — even with OAuth, rolls need a live inventory call. That independently reinforces the global-prescription + OAuth-as-presentation decision.
   What SP4 still needs: the standard roll VALUES (primary 30 / secondary 25 / tertiary 20 or 25 per the user) are balance numbers to confirm externally, plus the masterwork/artifice stat increments.
-- **UI is unstarted.** Next.js + React was requested; `AGENTS.md` requires reading `node_modules/next/dist/docs/` before writing any Next.js code, since this version has breaking changes vs training data. **No longer blocked** — the artifact default now comes from `Lookup.currentArtifact()`.
+- **UI: ✅ FIRST SLICE SHIPPED (`be7d90e`)** — `src/app/page.tsx` + `src/lib/ui/recommend.ts`. A Server Component recommender with ZERO client JS: the solver runs server-side in ~200ms and the pickers are links that change the query string, so there are no loading states, no hydration, and no duplicated solver logic on the client. Solver invocation lives in `src/lib/ui/recommend.ts` so it is testable without rendering.
+  **Next 16 facts worth not rediscovering:** `params` AND `searchParams` are both PROMISES and must be awaited; `use cache` requires opting into `cacheComponents` in `next.config` (skipped — `loadDataset` already caches in-process). Read `node_modules/next/dist/docs/01-app/01-getting-started/` before extending, per AGENTS.md.
+  **Verified by RENDERING, not just building:** arc/warlock 40.00 (20 synergies), prismatic/hunter 31.50 (24), stasis/titan 61.00 (28) — Stasis being the meaningful case, since it would have rendered "No build found" before the ingest repair. Bogus query values return the picker prompt, not a crash.
+  **Next UI steps:** show entity NAMES rather than hashes (the page currently prints counts and raw hashes for exotic/aspects/fragments — `Lookup` resolves them, it just is not wired); a mods toggle (`chooseMods`, ~4.4s so it needs a deliberate control, not a default); and per-slot mod/stat display once the prescription model lands.
 - **`Armor.modSocketHashes` is a PARTIAL socket view** — general/slot-specific/masterwork but not the archetype socket. Do not treat it as an item's complete socket set.
 
 **0. Wire the aspect dimension** — see "NEXT TASK" at the top. The `Selection` refactor and slice 4 are both ✅ shipped; the aspect helpers exist and are tested but are not wired.
