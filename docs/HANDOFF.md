@@ -12,30 +12,66 @@
 | SP3b **slice 4** — infeasibility explanation | ✅ shipped, `fc2588c` |
 | **Ingest repair** — Stasis, placeholders, aspect class | ✅ shipped, `2aec005` |
 | Aspect pool/reach/dynamic-cap helpers | ✅ shipped, `61a216c` — **not wired** |
-| Slice 3 — solver-chosen **aspects** | ⏭️ **NEXT.** Design settled, see below |
-| Slice 3 — solver-chosen **artifact** | ⏭️ after aspects; needs no new data |
-| Slice 2c — mods · set bonuses | ⛔ still blocked on ingest data |
+| Slice 3 — solver-chosen **aspects** | ✅ shipped, merge `7eedef4` |
+| Slice 3 — solver-chosen **artifact** | ⚠️ **QUESTION THE SCOPE FIRST** — see below |
+| Slice 2c — mods | ✅ **UNBLOCKED** — data measured and present, see below |
 
 **Test baseline: `292/292 passing, 43 files, 0 failing`.** Run `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`. Anything less is a regression — this session ended fully green with nothing in flight.
 
 **⚠️ The weapons cost tripwire is now `10,527`, not 10,842.** Legitimately re-measured after the ingest repair shrank the fragment pool (12 no-op placeholders removed ⇒ less real branching). Full history and the re-measure recipe are in `tests/solver/integration-weapons.test.ts`; the exotic marginal factor likewise moved 2.61x → **2.71x**.
 
-### NEXT TASK — wire the aspect dimension into the beam
+### ✅ Aspect dimension SHIPPED — and the bug its mutation pass found
 
-The helpers exist and are tested (`src/lib/solver/subclass.ts`: `ASPECT_CAP`, `deriveAspectPool`, `deriveAspectReach`, `fragmentSlotsFor`). What remains is beam wiring, and the design is decided:
+The beam now chooses aspects (`7eedef4`), with the fragment cap recomputed per state from
+pinned + chosen aspects. Measured **1.21x** marginal bound-call cost on real data (8,049 open
+vs 6,643 closed) — cheap, because the pool is 4–5 per (class, element) against 47 exotics.
+The weapons tripwire is still **exactly 10,527**, proving the dimension is additive.
 
-1. **Dimension open iff** `classType !== undefined` **and** `base.subclass.aspectHashes.length < ASPECT_CAP`. A non-empty `aspectPool` ⇔ open, the same contract `exoticPool` uses.
-2. **`Selection` gains `aspectHashes: Hash[]`** (required, defaults `[]` at the root). `stateKey` appends `|asp:` **only when non-empty**, so closed-dimension keys stay byte-identical — the same rule as `|wpn:`/`|exo:`.
-3. **`fragmentCap` becomes per-state**, computed as `fragmentSlotsFor(ctx, pinned ++ chosen)` inside `makeState`. `CandidateEnv.fragmentCap` is read by `generateCandidates`, so pass a derived env (`{ ...env, fragmentCap }`) rather than changing its signature — its five test files call it positionally.
-4. **New `aspect` candidate kind**, offered while `aspectHashes.length < ASPECT_CAP`. Add `aspectPool` to `CandidateEnv` as **optional** and `aspectHashes` as a **trailing defaulted param**, so existing positional call sites keep compiling (the slice-1/2b additive pattern).
-5. **`dimensionsAllDecided` gains one clause**: aspects must reach `ASPECT_CAP` when the pool is non-empty. This is exactly the per-dimension list the helper was factored out to hold.
-6. **`resolveSolverEnv` gains `ASPECT_POOL_TOO_SMALL`** when `pinned + pool < ASPECT_CAP` — otherwise such a build silently degrades to `NO_COMPLETION_FOUND`.
+> **⚠️ READ THIS BEFORE ADDING ANOTHER DIMENSION.** `Selection` carries only the solver's OWN
+> picks, so every cap comparison must add `env.pinnedAspects` back in. All three comparisons
+> originally counted solver picks alone against `ASPECT_CAP`, so a build with ONE pinned aspect
+> got two more added — a 3-aspect illegal build. It surfaced only because deleting the aspect
+> clause from `dimensionsAllDecided` reddened **nothing**: the vacuous mutation was the
+> symptom, and the accounting bug was the finding. **When a mutation proves vacuous, ask what
+> the tests aren't covering before concluding the code is merely defensive.**
 
-**⚠️ THE COMPATIBILITY CONSEQUENCE — budget for it, it is why this wasn't landed with the helpers.** Several existing fixtures pin **one** aspect alongside a `classType` (`tests/solver/beam-exotic-wiring.test.ts` uses `aspectHashes: [100]` + warlock, and its `ctx` has that aspect in `elementToItems`). Opening the dimension on `pinned < ASPECT_CAP` correctly makes the solver fill their second aspect — which changes assertions that pin exact candidate kinds (e.g. `expect(parent.candidates.map(c => c.kind)).toEqual(["fragment"])`). Those fixtures must either pin a second aspect or drop `classType`, chosen per test according to what it actually means to cover. **Do not "fix" this by narrowing the open condition** — filling a second aspect is the feature.
+Both remaining terminal clauses (exotic, aspect) are now honestly documented as defensive and
+unreachable today, rather than claimed load-bearing.
 
-**The gate this dimension needs (apply the slice-2b rule).** Aspects are **single-stage and always selectable**, like exotic armor and unlike weapons — so `aspectReach` **cannot** be proven load-bearing by an outcome test (choose-aspect-first is a sibling of every path from the root, so deleting the reach term changes no winner). It needs an **admissibility property test**: the bound on an aspect-undecided state must dominate every completion's realized score. Mirror `tests/solver/beam-exotic.test.ts`'s existing property test, and watch for the `Math.max(...[])` = `-Infinity` vacuity trap noted in Process + gotchas.
+### ⏭️ NEXT — pick one; both are unblocked, and the artifact one needs a scope decision
 
-**Already resolved — do not relitigate.** The handoff previously flagged "aspects bring a dynamic fragment cap → re-examine SP3a's terminal-only routing vs underfill". **Settled: terminal-only routing stays correct.** `fragmentSlotsFor` grows *monotonically* as aspects are added, so a fragment added under a low cap is never invalidated by a later aspect; fill-to-cap therefore stays satisfiable and underfill never becomes legal. No best-partial tracking is needed.
+**A. Slice 2c — mods. UNBLOCKED; the twice-deferred data question is now MEASURED.**
+`DestinySocketTypeDefinition` is **already in `MANIFEST_TABLES`**, so no new fetch is needed —
+the prerequisite is a resolve-and-emit, much smaller than the handoff assumed. Measured on
+manifest `244213.26.06.29.2000-1-bnet.65583`:
+- **1874/1874** socket types carry a non-empty `plugWhitelist`, every one with at least one
+  `categoryIdentifier`.
+- **279/279** distinct `socketTypeHash`es appearing on armor resolve.
+- Armor mod sockets are clean and mostly single-category: `enhancements.v2_head` (2547 items),
+  `v2_arms` (2604), `v2_chest` (2544), `v2_legs` (2511), `v2_class_item` (2493); the general
+  socket (4557) accepts **two** — `enhancements.v2_general` and `enhancements.rivens_curse`.
+- **29 of 35** mod plugCategories are accepted by some armor socket. The 6 that are not are
+  all `ghosts_*` / `season_opulence` — **Ghost shell mods, not armor mods**. That is the
+  explanation for slice 2a's "196 mods stay `slotRestriction: undefined` on purpose".
+
+**⚠️ This RETIRES THE BLOCKING PREMISE of the set-bonuses-vs-mods ordering question, but not
+the decision.** The question was deferred twice on the reasoning "mods need an ingest
+prerequisite set bonuses do not, so set-bonuses-first looks cheaper". That cost argument is
+now measured false. What remains is a product-priority call, which is the user's — ask, do not
+infer. Note the oracle itself is still **categorical, not nested**, so SP2's upward-closed
+Hall's-condition shortcut does NOT transfer (energy legality is deprecated, so capacity is
+about socket counts per category, not energy).
+
+**B. Slice 3's artifact half — ⚠️ DO NOT BUILD IT WITHOUT ASKING.** The handoff has long
+scoped this as "solver-chosen artifact (all 7)". Inspecting what those 7 actually are:
+`Implement of Curiosity`, `Encrypted Data Disk`, `NPA Repulsion Regulator`, `Slayer Baron
+Apothecary Satchel`, `Hunter's Journal`, `Queensfoil Censer`, `Tablet of Ruin` — **seven
+different seasonal artifacts**, each with its own 21 distinct perks. A player has exactly ONE
+active artifact per season and cannot choose among them, so a solver that picks the artifact
+would recommend perks the user cannot access. The dimension is cheap to build and probably
+should not be built as specified. Options to put to the user: leave the artifact pinned (what
+SP3a already does and what the game models); or reframe it as an explicitly-labelled
+cross-season "what if" comparison, which is an analytical feature, not a buildcrafting one.
 
 ### Slice 2b task status (all 7 complete)
 
@@ -98,7 +134,7 @@ Shipped as `2aec005`. Found by inspecting the manifest *before* building the asp
 
 **After slice 2b:** **slice 2c** = mods (needs a mod capacity oracle first — see Future/parked); **set bonuses** (order vs 2c is an OPEN question, below); **slice 3** = solver-chosen artifact (all 7) + solver-chosen aspects (dynamic fragment cap → **re-examine SP3a's terminal-only routing vs underfill**); **slice 4** = full infeasibility **explanation** (currently just a `feasible` boolean). SP4 (armor stat optimizer) fills the `StatFit` seam. Slices 2c–3 reuse the **dependent/staged candidate-generation** pattern the weapons slice established.
 
-**⚠️ OPEN QUESTION, deferred a SECOND time at session close (2026-07-28) — decide when slice 2c starts. Blocks NOTHING before then: not the `Selection` refactor, not slice 3.** The **ordering of set bonuses vs mods**. When scoping armor the user said set bonuses were "likely next"; mods were then given their own slice behind a capacity oracle. Mods need an ingest prerequisite (socket-type → accepted-plug-category data) that set bonuses do not, so set-bonuses-first looks cheaper — but that is analysis, not a decision. **The honest reason it stays deferred:** the inspection pass that would settle it (what mod socket data the manifest actually carries) has not been run, so deciding now would be guessing at exactly the layer where slice 2a's `0/348` blocker came from. Run the measurement first, then decide.
+**⚠️ OPEN QUESTION — set bonuses vs mods ordering. The MEASUREMENT IS NOW DONE; only the priority call is left, and it is the user's.** The question was deferred twice on the reasoning that mods needed an ingest prerequisite set bonuses did not, so set-bonuses-first looked cheaper. **That premise is measured false** (see "NEXT — A" at the top): `DestinySocketTypeDefinition` is already fetched and carries complete accepted-category data, so the mod prerequisite is a resolve-and-emit rather than a new ingest. Ask the user which they want first; do not infer it from cost, because cost no longer separates them. Note set bonuses have their own dependency that mods do NOT: they are counted from `armor.pieces`, which the solver never writes (SP4 owns it), so a set-bonus dimension needs the SP4 seam filled or a deliberate decision to model sets without pieces.
 
 **⏸️ Exotic class items — WANTED, but scheduled as a POST-RELEASE update far down the line (decided by user 2026-07-27).** Not a "maybe never" — the functionality is desired; it is sequenced late because the two reasons below cap its value for the initial release, not because it is unwanted. Finding A from the slice-2a review. Exotic class items (Stoicism / Solipsism / Relativism) each expose **two player-selectable "Spirit of …" sockets** drawn from large pools, but `Armor.exoticPerkHash` is singular so the ingest captures **one** spirit — and *which* one is arbitrary (the last qualifying socket).
 
