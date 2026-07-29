@@ -63,12 +63,14 @@ const build = (
 
 describe("stateKey — exotic component", () => {
   it("is byte-identical to slice 1 when no exotic is given", () => {
-    expect(stateKey([1, 2], [3])).toBe("frag:1,2|perk:3");
-    expect(stateKey([1, 2], [3], [])).toBe("frag:1,2|perk:3");
+    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [] })).toBe("frag:1,2|perk:3");
+    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], exoticHash: undefined }))
+      .toBe("frag:1,2|perk:3");
   });
 
   it("appends the exotic when present", () => {
-    expect(stateKey([1], [2], [], 55)).toBe("frag:1|perk:2|exo:55");
+    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], exoticHash: 55 }))
+      .toBe("frag:1|perk:2|exo:55");
   });
 });
 
@@ -126,8 +128,8 @@ describe("beamSearch — exotic terminal behaviour", () => {
     const completed = beamSearch(env, synergyUpperBound);
     expect(completed.length).toBeGreaterThan(0);
     for (const s of completed) {
-      expect(s.exoticHash).toBeDefined();
-      expect(s.build.armor.exoticHash).toBe(s.exoticHash);
+      expect(s.selection.exoticHash).toBeDefined();
+      expect(s.build.armor.exoticHash).toBe(s.selection.exoticHash);
     }
   });
 
@@ -147,13 +149,13 @@ describe("beamSearch — exotic terminal behaviour", () => {
 
   // Finding 1 (Task-4 review): every fixture above has zero non-exotic moves (fragmentCap
   // 0, empty perk pool, no weapon slots), so the only candidate kind ever produced is
-  // "exoticArmor" — the four `expand()` branches that must forward `state.exoticHash`
+  // "exoticArmor" — the four `expand()` branches that must forward the decided exotic
   // (fragment, artifactPerk, weapon, weaponPerk) are never exercised with a *defined*
-  // `state.exoticHash`. This fixture opens a second dimension (one fragment, cap 1) so the
-  // beam explores the "exotic chosen, then fragment added" order.
+  // `selection.exoticHash`. This fixture opens a second dimension (one fragment, cap 1) so
+  // the beam explores the "exotic chosen, then fragment added" order.
   //
   // NOTE on what this test does and does NOT prove: measured by deliberately reintroducing
-  // the bug (dropping the trailing `state.exoticHash` from the "fragment" branch) and
+  // the bug (overriding `exoticHash: undefined` in the "fragment" branch's spread) and
   // rerunning, THIS test alone stays green — `generateCandidates` unconditionally re-offers
   // the *entire* `env.exoticPool` whenever its `exoticHash` argument is undefined, with no
   // notion of "already offered", so a dropped forward is never a permanent loss: the state
@@ -181,9 +183,9 @@ describe("beamSearch — exotic terminal behaviour", () => {
     const completed = beamSearch(env, synergyUpperBound);
     expect(completed.length).toBeGreaterThan(0);
     for (const s of completed) {
-      expect(s.fragHashes).toEqual([500]);
-      expect(s.exoticHash).toBeDefined();
-      expect(s.build.armor.exoticHash).toBe(s.exoticHash);
+      expect(s.selection.fragHashes).toEqual([500]);
+      expect(s.selection.exoticHash).toBeDefined();
+      expect(s.build.armor.exoticHash).toBe(s.selection.exoticHash);
     }
   });
 
@@ -192,9 +194,11 @@ describe("beamSearch — exotic terminal behaviour", () => {
   // call `expand()` — the unit under test — directly. `generateCandidates` only offers
   // "fragment" here (the exotic is decided, so no `exoticArmor` candidate exists to mask a
   // forwarding bug via re-selection), so this cannot self-heal the way the beamSearch-level
-  // test above can. Confirmed by mutation (see the task report for both runs): deleting the
-  // trailing `state.exoticHash` from the "fragment" branch turns this RED
-  // (`child.exoticHash` becomes `undefined`); restoring it turns it GREEN.
+  // test above can. Confirmed by mutation (see the task report for both runs): overriding
+  // `exoticHash: undefined` in the "fragment" branch's `{ ...sel }` spread turns this RED
+  // (`child.selection.exoticHash` becomes `undefined`); removing the override turns it
+  // GREEN. Note the mutation is now something you must WRITE rather than something you can
+  // forget — that is what carrying `Selection` bought (see its docstring).
   it("expand()'s fragment branch forwards an already-decided exotic to the child state", () => {
     const taggedAspect: Aspect = {
       kind: "aspect", hash: 101, name: "AspFrag", element: "arc", classType: "any",
@@ -208,15 +212,17 @@ describe("beamSearch — exotic terminal behaviour", () => {
       build({ classType: "warlock", aspectHashes: [101] }), ctx, {},
     )!;
 
-    const parent = makeState(env, [], [], synergyUpperBound, [], 10);
+    const parent = makeState(
+      env, { fragHashes: [], perkHashes: [], weapons: [], exoticHash: 10 }, synergyUpperBound,
+    );
     // The exotic is already decided, so the only legal move left is the fragment — no
     // exoticArmor candidate exists here to mask a dropped forward via re-selection.
     expect(parent.candidates.map((c) => c.kind)).toEqual(["fragment"]);
 
     const children = expand(parent, env, synergyUpperBound);
     expect(children).toHaveLength(1);
-    expect(children[0].fragHashes).toEqual([500]);
-    expect(children[0].exoticHash).toBe(10);
+    expect(children[0].selection.fragHashes).toEqual([500]);
+    expect(children[0].selection.exoticHash).toBe(10);
   });
 });
 
@@ -245,14 +251,13 @@ describe("beam bound — exotic reach wiring", () => {
     expect(envTagged.exoticReach.length).toBeGreaterThan(0);
     expect(envUntagged.exoticReach).toEqual([]);
 
-    const rootTagged = makeState(
-      envTagged, envTagged.base.subclass.fragmentHashes, envTagged.base.artifact.selectedPerkHashes,
-      synergyUpperBound,
-    );
-    const rootUntagged = makeState(
-      envUntagged, envUntagged.base.subclass.fragmentHashes, envUntagged.base.artifact.selectedPerkHashes,
-      synergyUpperBound,
-    );
+    const rootOf = (e: typeof envTagged) => makeState(e, {
+      fragHashes: e.base.subclass.fragmentHashes,
+      perkHashes: e.base.artifact.selectedPerkHashes,
+      weapons: [],
+    }, synergyUpperBound);
+    const rootTagged = rootOf(envTagged);
+    const rootUntagged = rootOf(envUntagged);
     expect(rootTagged.priority).toBeGreaterThan(rootUntagged.priority);
   });
 });
@@ -261,7 +266,7 @@ describe("expand() — exotic forwarding across the remaining three branches", (
   // Task-4 re-review (Finding 1, remainder): the fragment-branch test above proved the
   // instrument (direct expand() calls, exotic pre-decided so no exoticArmor candidate can
   // mask a drop) but "artifactPerk", "weapon", and "weaponPerk" were still exercised only
-  // with `state.exoticHash === undefined` everywhere else in this file — never with a
+  // with `selection.exoticHash === undefined` everywhere else in this file — never with a
   // defined value. This fixture is rich enough to produce all three remaining move kinds
   // (fragment is deliberately excluded here — already covered above) from ONE parent state:
   //   - an artifact tier with slots > 0 and one placeable perk → "artifactPerk"
@@ -322,11 +327,11 @@ describe("expand() — exotic forwarding across the remaining three branches", (
 
     // Kinetic already picked (weapon 500, column still open); energy still unpicked;
     // one artifact perk still placeable; exotic pre-decided as hash 10.
-    const parent = makeState(
-      env, [], [], synergyUpperBound,
-      [{ slot: "kinetic", itemHash: 500, plugHashes: [] }],
-      10,
-    );
+    const parent = makeState(env, {
+      fragHashes: [], perkHashes: [],
+      weapons: [{ slot: "kinetic", itemHash: 500, plugHashes: [] }],
+      exoticHash: 10,
+    }, synergyUpperBound);
 
     const kinds = new Set(parent.candidates.map((c) => c.kind));
     expect(kinds).toEqual(new Set(["artifactPerk", "weapon", "weaponPerk"]));
@@ -335,6 +340,6 @@ describe("expand() — exotic forwarding across the remaining three branches", (
     // One child per candidate — confirms every one of the three branches actually ran
     // (not just the first candidate kind encountered) rather than just checking length.
     expect(children).toHaveLength(parent.candidates.length);
-    for (const child of children) expect(child.exoticHash).toBe(10);
+    for (const child of children) expect(child.selection.exoticHash).toBe(10);
   });
 });

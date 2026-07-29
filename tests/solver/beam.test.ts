@@ -69,15 +69,15 @@ describe("beamSearch — delayed reward", () => {
   it("keeps a producer whose only consumer is an artifact perk (bound ON, W=1)", () => {
     const env = buildSolverEnv(pinned(), ctx, { beamWidth: 1, statFit: neutralStatFit })!;
     const best = topByRealized(beamSearch(env, synergyUpperBound));
-    expect(best.fragHashes).toContain(200); // F_PROD survived the width-1 beam
+    expect(best.selection.fragHashes).toContain(200); // F_PROD survived the width-1 beam
     expect(best.realized.score).toBeCloseTo(2, 6); // ignite (1) + surge (1)
   });
 
   it("FAILS to keep the producer with a zero bound (proves the bound is load-bearing)", () => {
     const env = buildSolverEnv(pinned(), ctx, { beamWidth: 1, statFit: neutralStatFit })!;
     const best = topByRealized(beamSearch(env, () => 0));
-    expect(best.fragHashes).not.toContain(200); // realized-only beam pruned F_PROD
-    expect(best.fragHashes).toContain(201); // it chose the immediate decoy chain
+    expect(best.selection.fragHashes).not.toContain(200); // realized-only beam pruned F_PROD
+    expect(best.selection.fragHashes).toContain(201); // it chose the immediate decoy chain
     expect(best.realized.score).toBeCloseTo(1.5, 6); // flare chain only
   });
 
