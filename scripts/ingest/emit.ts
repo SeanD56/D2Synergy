@@ -15,7 +15,8 @@ import { DATA_DIR, INDEXES_PATH, META_PATH, PLUG_TAGS_PATH, SOCKET_TYPES_PATH } 
 import type { TransformResult } from "./transform";
 
 /** Keys of `TransformResult` that serialize as plain entity arrays. */
-type EntityKey = Exclude<keyof TransformResult, "plugTags" | "socketTypes">;
+// Side tables and scalars are emitted separately, so they are not entity FILES.
+type EntityKey = Exclude<keyof TransformResult, "plugTags" | "socketTypes" | "currentArtifactHash">;
 
 /** Output filename → the `TransformResult` array it serializes. */
 const ENTITY_FILES: Array<[file: string, key: EntityKey]> = [
@@ -61,6 +62,7 @@ export async function emit(options: EmitOptions): Promise<DatasetMeta> {
     manifestVersion: options.manifestVersion,
     ingestedAt: options.ingestedAt,
     counts,
+    currentArtifactHash: options.result.currentArtifactHash,
   };
   await writeFile(META_PATH, `${JSON.stringify(meta, null, 2)}\n`);
   return meta;

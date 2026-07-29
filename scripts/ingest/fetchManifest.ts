@@ -41,6 +41,10 @@ export const MANIFEST_TABLES = [
   "DestinyInventoryBucketDefinition",
   "DestinyItemCategoryDefinition",
   "DestinyEquipableItemSetDefinition",
+  // Fetched ONLY to identify which of the 7 artifacts is CURRENT. The artifacts themselves come
+  // from DestinyInventoryItemDefinition (see the note above) because this table returns just the
+  // active one — which is exactly what makes it the right source for "which season is live".
+  "DestinyArtifactDefinition",
 ] as const;
 
 export type BuildcraftingTable = (typeof MANIFEST_TABLES)[number];

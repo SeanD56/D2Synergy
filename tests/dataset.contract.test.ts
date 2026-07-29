@@ -309,3 +309,41 @@ describe.runIf(hasDataset)("dataset contract — armour socket types", () => {
     }
   });
 });
+
+/**
+ * The CURRENT seasonal artifact must be identifiable.
+ *
+ * A player has exactly one active artifact, so any default — the UI especially — must use this
+ * rather than picking among the 7 arbitrarily, which would recommend perks they cannot access.
+ *
+ * Resolved by NAME BRIDGE from `DestinyArtifactDefinition`, which holds only the live artifact but
+ * in a DISJOINT hash namespace: measured, it reports `Implement of Curiosity` at hash 2894222926
+ * while the same artifact is 23349941 in our set. That is the same disjoint-namespace shape as
+ * slice 1's weapon-plug bridge. A floor here means a season rollover that renames or restructures
+ * fails LOUDLY instead of silently leaving the UI with no default.
+ */
+describe.runIf(hasDataset)("dataset contract — current seasonal artifact", () => {
+  let ds: DerivedDataset;
+  beforeAll(async () => { ds = await loadDataset(); });
+
+  it("resolves the current artifact into OUR hash namespace", () => {
+    expect(ds.meta.currentArtifactHash).toBeDefined();
+    const match = ds.artifacts.find((a) => a.hash === ds.meta.currentArtifactHash);
+    expect(match, "currentArtifactHash must be one of the emitted artifacts").toBeDefined();
+  });
+
+  it("exposes it through the Lookup seam", async () => {
+    const { createLookup } = await import("@/lib/validation");
+    const current = createLookup(ds).currentArtifact();
+    expect(current).toBeDefined();
+    expect(current!.hash).toBe(ds.meta.currentArtifactHash);
+    // It must be a REAL artifact with perks, not a stub.
+    expect(current!.tiers.flatMap((t) => t.perks).length).toBeGreaterThan(0);
+  });
+
+  it("picks exactly one — the point of the field", () => {
+    const matches = ds.artifacts.filter((a) => a.hash === ds.meta.currentArtifactHash);
+    expect(matches).toHaveLength(1);
+    expect(ds.artifacts.length).toBeGreaterThan(1); // anti-vacuity: there must be others to exclude
+  });
+});
