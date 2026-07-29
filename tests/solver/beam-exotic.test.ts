@@ -8,6 +8,14 @@ import { EMPTY_TAGS } from "@/lib/types";
 import { beamSearch, buildSolverEnv, makeState } from "@/lib/solver/beam";
 import type { SolverContext } from "@/lib/solver";
 
+/**
+ * Armor 3.0 marker. `deriveExoticArmorPool` accepts only Armor 3.0 pieces, identified by the
+ * `armor_tiering` tuning socket, so every exotic fixture here must carry one or the pool comes
+ * back empty. Registered in each stub dataset's `socketTypes` side table.
+ */
+const TIERING_SOCKET = 8800;
+const TIERING_SOCKET_TYPES = { [TIERING_SOCKET]: ["core.gear_systems.armor_tiering.plugs.tuning.mods"] };
+
 const EMPTY_INDEXES = {
   keyword: { producers: {}, consumers: {} },
   perkToWeapons: {}, elementToItems: {}, setToPieces: {},
@@ -49,18 +57,18 @@ const fragConsumer: Fragment = {
 // Inert exotic has the LOWER hash, for the same reason.
 const exoInert: Armor = {
   kind: "armor", hash: 800, name: "ExoInert", icon: "", slot: "helmet", tier: "exotic",
-  classType: "warlock", modSocketHashes: [], tags: EMPTY_TAGS,
+  classType: "warlock", modSocketHashes: [TIERING_SOCKET], tags: EMPTY_TAGS,
 } as Armor;
 const exoProducer: Armor = {
   kind: "armor", hash: 801, name: "ExoProd", icon: "", slot: "arms", tier: "exotic",
-  classType: "warlock", modSocketHashes: [], tags: tag({ produces: ["jolt"] }),
+  classType: "warlock", modSocketHashes: [TIERING_SOCKET], tags: tag({ produces: ["jolt"] }),
 } as Armor;
 
 // A non-exotic piece, so "an exotic piece closes the dimension" can be contrasted against a
 // legendary one that must NOT close it. Absent from `exoticToClassSlot`, as real data is.
 const legHelmet: Armor = {
   kind: "armor", hash: 700, name: "LegHelm", icon: "", slot: "helmet", tier: "legendary",
-  classType: "warlock", modSocketHashes: [], tags: EMPTY_TAGS,
+  classType: "warlock", modSocketHashes: [TIERING_SOCKET], tags: EMPTY_TAGS,
 } as Armor;
 
 function ctxFor(): SolverContext {
@@ -73,7 +81,7 @@ function ctxFor(): SolverContext {
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
     subclasses: [], aspects: [aspect100, aspectFiller], fragments: [fragInert, fragConsumer],
     weapons: [], armor: armorPieces, armorSets: [], mods: [], artifacts: [artifact300],
-    perks: [], stats: [], plugTags: {},
+    perks: [], stats: [], plugTags: {}, socketTypes: TIERING_SOCKET_TYPES,
     indexes: {
       ...EMPTY_INDEXES,
       elementToItems: { arc: [fragInert.hash, fragConsumer.hash] },

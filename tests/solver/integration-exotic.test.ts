@@ -9,6 +9,7 @@ import { createLookup, type Lookup } from "@/lib/validation";
 import { synergyUpperBound } from "@/lib/synergy";
 import type { BuildElement } from "@/lib/synergy";
 import { solve, type SolverContext } from "@/lib/solver";
+import { deriveExoticArmorPool } from "@/lib/solver/armor";
 
 const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.json"));
 
@@ -155,14 +156,36 @@ describe.runIf(hasDataset)("solve — exotic armor dimension (real data)", () =>
     expect(withExotic.builds[0].score).toBeGreaterThanOrEqual(withoutExotic.builds[0].score);
   });
 
-  it("honours a useExotic pin", () => {
+  it("honours a useExotic pin naming an Armor 3.0 exotic", () => {
     const base = fixture();
-    const pool = ds.armor.filter((a) => a.tier === "exotic" && a.classType === "warlock");
-    const pin = pool[0].hash;
+    // Must pin an ARMOR 3.0 hash. The manifest carries ~2.47x legacy duplicates of every
+    // exotic, and the solver now recommends Armor 3.0 only, so a legacy hash is rejected —
+    // see the test below, which pins that consequence deliberately.
+    const pin = deriveExoticArmorPool(ctx, "warlock")[0].hash;
     const pinned = { ...base, constraints: [{ kind: "useExotic", itemHash: pin }] } as unknown as Build;
     const result = solve(pinned, ctx, { beamWidth: 8, topN: 1 });
     expect(result.feasible).toBe(true);
     expect(result.builds[0].build.armor.exoticHash).toBe(pin);
+  });
+
+  it("REJECTS a useExotic pin naming a legacy (non-Armor-3.0) copy of an exotic", () => {
+    // The user-visible consequence of the Armor 3.0 restriction: the manifest holds legacy
+    // duplicates sharing a name with an Armor 3.0 entry, and pinning one of those hashes is
+    // now infeasible. The reason message must say WHY rather than claiming the hash is unknown.
+    const armor30 = new Set(deriveExoticArmorPool(ctx, "warlock").map((a) => a.hash));
+    const legacy = ds.armor.find(
+      (a) => a.tier === "exotic" && a.classType === "warlock" && !armor30.has(a.hash),
+    );
+    expect(legacy, "dataset must contain a legacy duplicate for this to test anything").toBeDefined();
+
+    const pinned = {
+      ...fixture(), constraints: [{ kind: "useExotic", itemHash: legacy!.hash }],
+    } as unknown as Build;
+    const result = solve(pinned, ctx, { beamWidth: 8, topN: 1 });
+    expect(result.feasible).toBe(false);
+    const reason = result.reasons.find((r) => r.code === "EXOTIC_POOL_EMPTY");
+    expect(reason).toBeDefined();
+    expect(reason!.message).toMatch(/Armor 3\.0/);
   });
 
   it("is infeasible when the pin contradicts the pinned class", () => {

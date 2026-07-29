@@ -10,6 +10,14 @@ import type { Armor, DerivedDataset } from "@/lib/types";
 import { deriveExoticArmorPool, deriveExoticReach } from "@/lib/solver/armor";
 import type { SolverContext } from "@/lib/solver";
 
+/**
+ * Armor 3.0 marker. `deriveExoticArmorPool` accepts only Armor 3.0 pieces, identified by the
+ * `armor_tiering` tuning socket, so every exotic fixture here must carry one or the pool comes
+ * back empty. Registered in each stub dataset's `socketTypes` side table.
+ */
+const TIERING_SOCKET = 8800;
+const TIERING_SOCKET_TYPES = { [TIERING_SOCKET]: ["core.gear_systems.armor_tiering.plugs.tuning.mods"] };
+
 const EMPTY_INDEXES = {
   keyword: { producers: {}, consumers: {} },
   perkToWeapons: {}, elementToItems: {}, setToPieces: {},
@@ -18,7 +26,7 @@ const EMPTY_INDEXES = {
 
 const armor = (over: Partial<Armor> & { hash: number; name: string }): Armor => ({
   kind: "armor", icon: "", slot: "helmet", tier: "exotic", classType: "warlock",
-  modSocketHashes: [], tags: { produces: [], consumes: [], triggers: [] }, ...over,
+  modSocketHashes: [TIERING_SOCKET], tags: { produces: [], consumes: [], triggers: [] }, ...over,
 }) as Armor;
 
 function ctxWith(pieces: Armor[]): SolverContext {
@@ -27,7 +35,7 @@ function ctxWith(pieces: Armor[]): SolverContext {
   const ds = {
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
     subclasses: [], aspects: [], fragments: [], weapons: [], armor: pieces,
-    armorSets: [], mods: [], artifacts: [], perks: [], stats: [], plugTags: {},
+    armorSets: [], mods: [], artifacts: [], perks: [], stats: [], plugTags: {}, socketTypes: TIERING_SOCKET_TYPES,
     indexes: { ...EMPTY_INDEXES, exoticToClassSlot },
   } as unknown as DerivedDataset;
   return { lookup: createLookup(ds), indexes: ds.indexes };

@@ -8,6 +8,14 @@ import { EMPTY_TAGS } from "@/lib/types";
 import { beamSearch, buildSolverEnv, expand, makeState, stateKey } from "@/lib/solver/beam";
 import type { SolverContext } from "@/lib/solver";
 
+/**
+ * Armor 3.0 marker. `deriveExoticArmorPool` accepts only Armor 3.0 pieces, identified by the
+ * `armor_tiering` tuning socket, so every exotic fixture here must carry one or the pool comes
+ * back empty. Registered in each stub dataset's `socketTypes` side table.
+ */
+const TIERING_SOCKET = 8800;
+const TIERING_SOCKET_TYPES = { [TIERING_SOCKET]: ["core.gear_systems.armor_tiering.plugs.tuning.mods"] };
+
 const EMPTY_INDEXES = {
   keyword: { producers: {}, consumers: {} },
   perkToWeapons: {}, elementToItems: {}, setToPieces: {},
@@ -35,7 +43,7 @@ const artifact300: Artifact = {
 
 const exo = (hash: number, name: string, classType = "warlock"): Armor => ({
   kind: "armor", hash, name, icon: "", slot: "helmet", tier: "exotic",
-  classType, modSocketHashes: [], tags: EMPTY_TAGS,
+  classType, modSocketHashes: [TIERING_SOCKET], tags: EMPTY_TAGS,
 }) as Armor;
 
 function ctxWith(
@@ -53,7 +61,7 @@ function ctxWith(
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
     subclasses: [], aspects: [...(opts.aspects ?? [aspect100]), aspectFiller], fragments,
     weapons: [], armor: pieces,
-    armorSets: [], mods: [], artifacts: [artifact300], perks: [], stats: [], plugTags: {},
+    armorSets: [], mods: [], artifacts: [artifact300], perks: [], stats: [], plugTags: {}, socketTypes: TIERING_SOCKET_TYPES,
     indexes: { ...EMPTY_INDEXES, exoticToClassSlot, elementToItems },
   } as unknown as DerivedDataset;
   return { lookup: createLookup(ds), indexes: ds.indexes };
@@ -311,7 +319,7 @@ describe("expand() — exotic forwarding across the remaining three branches", (
       meta: { ingestedAt: "", manifestVersion: "", counts: {} },
       subclasses: [], aspects: [aspect100, aspectFiller], fragments: [],
       weapons: [weaponKinetic, weaponEnergy], armor: pieces,
-      armorSets: [], mods: [], artifacts: [richArtifact], perks: [], stats: [], plugTags: {},
+      armorSets: [], mods: [], artifacts: [richArtifact], perks: [], stats: [], plugTags: {}, socketTypes: TIERING_SOCKET_TYPES,
       indexes: {
         ...EMPTY_INDEXES, exoticToClassSlot,
         slotToWeapons: { kinetic: [500], energy: [600] },

@@ -295,9 +295,13 @@ export function resolveSolverEnv(
       reasons.push({
         code: "EXOTIC_POOL_EMPTY",
         message: pinnedExotic === undefined
-          ? `No exotic armor in the dataset matches the ${classType} class.`
-          : `The pinned exotic ${pinnedExotic} is either absent from the dataset or does not `
-            + `belong to the ${classType ?? "chosen"} class.`,
+          ? `No Armor 3.0 exotic armor matches the ${classType} class.`
+          // The Armor 3.0 clause matters: the manifest holds ~2.47x legacy duplicates of every
+          // exotic, so a pin can name a real, class-correct hash that is nonetheless a legacy
+          // copy. Saying only "absent from the dataset" would be actively misleading there.
+          : `The pinned exotic ${pinnedExotic} is not an Armor 3.0 piece for the `
+            + `${classType ?? "chosen"} class — it is absent from the dataset, belongs to `
+            + `another class, or is a legacy (pre-Armor 3.0) copy of an exotic.`,
         hashes: pinnedExotic === undefined ? undefined : [pinnedExotic],
       });
     }

@@ -8,6 +8,14 @@ import { solve } from "@/lib/solver";
 import type { SolveResult } from "@/lib/solver";
 
 /**
+ * Armor 3.0 marker. `deriveExoticArmorPool` accepts only Armor 3.0 pieces, identified by the
+ * `armor_tiering` tuning socket, so every exotic fixture here must carry one or the pool comes
+ * back empty. Registered in each stub dataset's `socketTypes` side table.
+ */
+const TIERING_SOCKET = 8800;
+const TIERING_SOCKET_TYPES = { [TIERING_SOCKET]: ["core.gear_systems.armor_tiering.plugs.tuning.mods"] };
+
+/**
  * SP3b slice 4 — the solver explains WHY a pinned build admits no completion, instead of
  * returning a bare `feasible: false`. Every `return null` path in `buildSolverEnv` must
  * surface as a typed, UI-renderable reason.
@@ -41,7 +49,7 @@ const frag500: Fragment = {
 
 const exo = (hash: number, name: string, classType = "warlock", slot = "helmet"): Armor => ({
   kind: "armor", hash, name, icon: "", slot, tier: "exotic",
-  classType, modSocketHashes: [], tags: EMPTY_TAGS,
+  classType, modSocketHashes: [TIERING_SOCKET], tags: EMPTY_TAGS,
 }) as Armor;
 
 function ctxWith(opts: { armor?: Armor[]; weapons?: Weapon[]; aspects?: Aspect[] } = {}) {
@@ -54,7 +62,7 @@ function ctxWith(opts: { armor?: Armor[]; weapons?: Weapon[]; aspects?: Aspect[]
     meta: { ingestedAt: "", manifestVersion: "", counts: {} },
     subclasses: [], aspects: opts.aspects ?? [aspectNoSlots], fragments: [frag500],
     weapons: opts.weapons ?? [], armor,
-    armorSets: [], mods: [], artifacts: [tightArtifact], perks: [], stats: [], plugTags: {},
+    armorSets: [], mods: [], artifacts: [tightArtifact], perks: [], stats: [], plugTags: {}, socketTypes: TIERING_SOCKET_TYPES,
     indexes: { ...EMPTY_INDEXES, exoticToClassSlot, slotToWeapons, elementToItems: { arc: [500] } },
   } as unknown as DerivedDataset;
   return { lookup: createLookup(ds), indexes: ds.indexes };
