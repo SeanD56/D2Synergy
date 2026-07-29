@@ -43,8 +43,10 @@ code); the one deliberate deviation is called out in Task 1, Step 1.
 
 | File | Responsibility | Task |
 | --- | --- | --- |
-| `src/lib/types/build.ts` | **Modify** — `TargetedSetBonus`, `SET_PIECE_BUDGET`, `ArmorLoadout.targetedSetBonuses?` | 1 |
+| `src/lib/types/build.ts` | **Modify** — `TargetedSetBonus`, `ArmorLoadout.targetedSetBonuses?` | 1 |
+| `src/lib/validation/set-plan.ts` | **Create** — `SET_PIECE_BUDGET`, `TargetPlanProblem`, `targetPlanProblems` — the SHARED legality predicate | 1 |
 | `src/lib/validation/types.ts` | **Modify** — add `SET_TARGET_INVALID` to `ViolationCode` | 1 |
+| `src/lib/validation/index.ts` | **Modify** — re-export the set-plan surface | 1 |
 | `src/lib/validation/armor.ts` | **Modify** — new `targetedSetBonusPlan` rule + register in `armorRules` | 1 |
 | `tests/validation/armor.test.ts` | **Modify** — rule tests, incl. the zero-`game`-violations assertion | 1 |
 | `src/lib/solver/set-bonuses.ts` | **Create** — pool, reach, budget arithmetic | 2 |
@@ -69,39 +71,41 @@ code); the one deliberate deviation is called out in Task 1, Step 1.
 
 **Files:**
 - Modify: `src/lib/types/build.ts` (after `ActiveSetBonus`, currently at lines 55-59)
+- Create: `src/lib/validation/set-plan.ts`
 - Modify: `src/lib/validation/types.ts:34` (the `ViolationCode` union)
+- Modify: `src/lib/validation/index.ts` (re-export the set-plan surface)
 - Modify: `src/lib/validation/armor.ts` (add a rule; register it in `armorRules` at lines 178-183)
 - Test: `tests/validation/armor.test.ts`
 
 **Interfaces:**
 - Consumes: nothing (first task).
-- Produces: `TargetedSetBonus { setHash: Hash; pieceCount: number }` and
-  `SET_PIECE_BUDGET = 4`, both exported from `src/lib/types/build.ts` and re-exported by
-  `@/lib/types`. `ArmorLoadout.targetedSetBonuses?: TargetedSetBonus[]`. Violation code
-  `"SET_TARGET_INVALID"`.
+- Produces: `TargetedSetBonus { setHash: Hash; pieceCount: number }` from `src/lib/types/build.ts`,
+  re-exported by `@/lib/types`; `ArmorLoadout.targetedSetBonuses?: TargetedSetBonus[]`; violation
+  code `"SET_TARGET_INVALID"`; and from `src/lib/validation/set-plan.ts`, re-exported by
+  `@/lib/validation`: `SET_PIECE_BUDGET = 4`, `TargetPlanProblem { setHash?: Hash; detail: string }`
+  and `targetPlanProblems(targets, setExists?): TargetPlanProblem[]`. Task 2 imports
+  `SET_PIECE_BUDGET`; Task 6 imports `targetPlanProblems`.
 
-**⚠️ DELIBERATE DEVIATION FROM THE SPEC.** The spec puts `SET_PIECE_BUDGET` in
-`src/lib/solver/set-bonuses.ts`. It goes in `src/lib/types/build.ts` instead, because the validator
-needs it too and **validation must not import the solver** — the dependency runs the other way
-(`src/lib/solver/beam.ts` imports from `@/lib/validation`). `src/lib/types` is the shared floor where
-`EMPTY_TAGS` already lives.
+**⚠️ DELIBERATE DEVIATION FROM THE SPEC — and the reason matters.** The spec puts
+`SET_PIECE_BUDGET` in `src/lib/solver/set-bonuses.ts`. Both it and the legality rules go in
+`src/lib/validation/set-plan.ts` instead, because **two** callers need the same four rules: this
+task's validator rule (which judges a finished build) and Task 6's `resolveSolverEnv` check (which
+explains an unsatisfiable pinned input). Validation must not import the solver — the dependency runs
+the other way, `src/lib/solver/beam.ts` already imports from `@/lib/validation` — so validation is
+the correct shared home.
+
+`targetPlanProblems` returns STRUCTURED problems rather than formatted messages precisely so the two
+callers can present them differently: the validator emits one `SET_TARGET_INVALID` violation per
+problem with `subject.hash` set, while Task 6 joins the details into one accumulated
+`SET_TARGET_PLAN_ILLEGAL` reason. One source of truth for the rules, two presentations. **Do not
+re-implement these four conditions anywhere else** — a rule enforced in one place and not the other
+is the silent-gap class this repo keeps catching.
 
 - [ ] **Step 1: Add the type and the constant**
 
 In `src/lib/types/build.ts`, directly after the `ActiveSetBonus` interface:
 
 ```typescript
-/**
- * Legendary armour slots available for set pieces: 5 armour slots minus the exotic.
- *
- * Deliberately a constant rather than a per-build computation. With no exotic chosen there are 5
- * legendary slots, but NO legal plan costs 3 or 5 pieces — the only combination that could use a
- * fifth is `{A:4, B:2}` at 6 — so the reachable plan space is identical either way and a
- * state-dependent budget would buy nothing. Lives here rather than in the solver because the
- * validator needs it and validation must not depend on the solver.
- */
-export const SET_PIECE_BUDGET = 4;
-
 /**
  * A set bonus the build is TARGETING — a goal, not a state.
  *
@@ -135,7 +139,7 @@ Then add the field to `ArmorLoadout` (currently lines 88-94), after `setBonuses`
 ```
 
 Confirm `src/lib/types/index.ts` re-exports `./build` with a `export *`-style barrel; if it names
-exports explicitly, add `SET_PIECE_BUDGET` and `TargetedSetBonus` to that list.
+exports explicitly, add `TargetedSetBonus` to that list.
 
 - [ ] **Step 2: Add the violation code**
 
@@ -235,7 +239,96 @@ Expected: the six `SET_TARGET_INVALID` tests FAIL (the code is never emitted, so
 The "zero game violations" and "inert when absent" tests may already PASS — that is expected and
 correct: they are regression guards, not drivers.
 
-- [ ] **Step 5: Implement the rule**
+- [ ] **Step 5a: Create the shared legality predicate**
+
+Create `src/lib/validation/set-plan.ts`:
+
+```typescript
+import type { Hash, TargetedSetBonus } from "@/lib/types";
+
+/**
+ * Legality of a TARGETED set-bonus plan — the single source of truth for its four rules.
+ *
+ * Two callers need exactly these rules and present them differently: `targetedSetBonusPlan`
+ * (`armor.ts`) judges a finished build and emits one `SET_TARGET_INVALID` violation per problem,
+ * while `resolveSolverEnv` (the solver) explains an unsatisfiable PINNED input and accumulates the
+ * problems into one `SET_TARGET_PLAN_ILLEGAL` reason. Hence structured problems rather than
+ * formatted messages, and hence this file rather than the solver: validation must not import the
+ * solver, and the solver already imports validation.
+ *
+ * ⚠️ Do not re-implement these conditions anywhere else. A rule enforced in one place and not the
+ * other is the silent-gap class this repo keeps catching.
+ */
+
+/** Legendary armour slots available for set pieces: 5 armour slots minus the exotic. */
+export const SET_PIECE_BUDGET = 4;
+
+/** One thing wrong with a plan. `detail` is a lower-case clause callers compose into a message. */
+export interface TargetPlanProblem {
+  /** The set at fault; absent when the problem is about the plan as a whole (the budget). */
+  setHash?: Hash;
+  detail: string;
+}
+
+/**
+ * Everything wrong with `targets`, or an empty array when the plan is legal.
+ *
+ * Problems ACCUMULATE rather than short-circuiting, so a caller can report every fault at once —
+ * matching slice 4's contract for infeasibility reasons.
+ *
+ * `setExists` is optional so the predicate stays pure and unit-testable without a `Lookup`; both
+ * production callers pass one, because an unresolvable set hash is a real fault.
+ */
+export function targetPlanProblems(
+  targets: readonly TargetedSetBonus[],
+  setExists?: (setHash: Hash) => boolean,
+): TargetPlanProblem[] {
+  const out: TargetPlanProblem[] = [];
+  const seen = new Set<Hash>();
+  let pieces = 0;
+
+  for (const t of targets) {
+    if (setExists !== undefined && !setExists(t.setHash)) {
+      out.push({ setHash: t.setHash, detail: `set ${t.setHash} is not in the dataset` });
+    }
+    if (t.pieceCount !== 2 && t.pieceCount !== 4) {
+      out.push({
+        setHash: t.setHash,
+        detail: `set ${t.setHash} is targeted at ${t.pieceCount} pieces, but a set bonus `
+          + "activates at 2 or 4",
+      });
+    }
+    if (seen.has(t.setHash)) {
+      out.push({
+        setHash: t.setHash,
+        // Cumulative thresholds are WHY one entry per set suffices: targeting 4 already activates
+        // the 2-piece bonus, so a second entry is a contradiction, not a refinement.
+        detail: `set ${t.setHash} is targeted more than once; thresholds are cumulative, so one `
+          + "entry per set is both sufficient and required",
+      });
+    }
+    seen.add(t.setHash);
+    pieces += t.pieceCount;
+  }
+
+  if (pieces > SET_PIECE_BUDGET) {
+    out.push({
+      detail: `the plan needs ${pieces} legendary pieces but only ${SET_PIECE_BUDGET} are `
+        + "available (5 armour slots minus the exotic)",
+    });
+  }
+  return out;
+}
+```
+
+Re-export from `src/lib/validation/index.ts`, following that file's existing export style:
+
+```typescript
+export { SET_PIECE_BUDGET, targetPlanProblems } from "./set-plan";
+export type { TargetPlanProblem } from "./set-plan";
+```
+
+- [ ] **Step 5b: Implement the rule on top of it**
 
 In `src/lib/validation/armor.ts`, add after `setBonusCounts` (do NOT touch `setBonusCounts`):
 
@@ -251,58 +344,20 @@ In `src/lib/validation/armor.ts`, add after `setBonusCounts` (do NOT touch `setB
  * all 5 armour slots (168/168 on manifest 244213.26.06.29.2000-1-bnet.65583), so a targeted set is
  * always obtainable by any class. A rule here could never fire.
  */
-const targetedSetBonusPlan: Rule = (build, lookup) => {
-  const targets = build.armor.targetedSetBonuses ?? [];
-  const out: Violation[] = [];
-  const seen = new Set<Hash>();
-  let pieces = 0;
-
-  for (const t of targets) {
-    if (lookup.armorSet(t.setHash) === undefined) {
-      out.push({
-        code: "SET_TARGET_INVALID",
-        category: "game",
-        message: `Targeted set ${t.setHash} is not in the dataset.`,
-        subject: { kind: "armorSet", hash: t.setHash },
-      });
-    }
-    if (t.pieceCount !== 2 && t.pieceCount !== 4) {
-      out.push({
-        code: "SET_TARGET_INVALID",
-        category: "game",
-        message: `A set bonus activates at 2 or 4 pieces, not ${t.pieceCount}.`,
-        subject: { kind: "armorSet", hash: t.setHash },
-      });
-    }
-    if (seen.has(t.setHash)) {
-      out.push({
-        code: "SET_TARGET_INVALID",
-        category: "game",
-        // Cumulative thresholds are WHY one entry per set suffices: targeting 4 already
-        // activates the 2-piece bonus, so a second entry is a contradiction, not a refinement.
-        message: `Set ${t.setHash} is targeted more than once; thresholds are cumulative, so `
-          + "one entry per set is both sufficient and required.",
-        subject: { kind: "armorSet", hash: t.setHash },
-      });
-    }
-    seen.add(t.setHash);
-    pieces += t.pieceCount;
-  }
-
-  if (pieces > SET_PIECE_BUDGET) {
-    out.push({
-      code: "SET_TARGET_INVALID",
-      category: "game",
-      message: `The targeted set bonuses need ${pieces} legendary pieces but only `
-        + `${SET_PIECE_BUDGET} are available (5 armour slots minus the exotic).`,
-    });
-  }
-  return out;
-};
+const targetedSetBonusPlan: Rule = (build, lookup) =>
+  targetPlanProblems(
+    build.armor.targetedSetBonuses ?? [],
+    (setHash) => lookup.armorSet(setHash) !== undefined,
+  ).map((problem) => ({
+    code: "SET_TARGET_INVALID",
+    category: "game",
+    message: `Invalid targeted set-bonus plan: ${problem.detail}.`,
+    subject: { kind: "armorSet", hash: problem.setHash },
+  }));
 ```
 
-Add `SET_PIECE_BUDGET` and the `Hash` type to the file's imports from `@/lib/types`, and register the
-rule in `armorRules`:
+Import `targetPlanProblems` from `./set-plan` (a sibling — do NOT import from the `@/lib/validation`
+barrel inside `validation/`, which would be circular), and register the rule in `armorRules`:
 
 ```typescript
 export const armorRules: Rule[] = [
@@ -323,13 +378,13 @@ Expected: all PASS, `tsc` clean.
 
 ```bash
 python3 - <<'PY'
-p="src/lib/validation/armor.ts"
+p="src/lib/validation/set-plan.ts"
 s=open(p).read()
 old="  if (pieces > SET_PIECE_BUDGET) {"
 assert s.count(old)==1, f"target count {s.count(old)}"
 open(p,"w").write(s.replace(old,"  if (false) { // MUTATION"))
 PY
-grep -n "MUTATION" src/lib/validation/armor.ts   # MUST print a line
+grep -n "MUTATION" src/lib/validation/set-plan.ts   # MUST print a line
 npx vitest run tests/validation/armor.test.ts    # "rejects a plan needing more than 4 pieces" MUST fail
 ```
 
@@ -337,13 +392,13 @@ Then revert and confirm:
 
 ```bash
 python3 - <<'PY'
-p="src/lib/validation/armor.ts"
+p="src/lib/validation/set-plan.ts"
 s=open(p).read()
 old="  if (false) { // MUTATION"
 assert s.count(old)==1
 open(p,"w").write(s.replace(old,"  if (pieces > SET_PIECE_BUDGET) {"))
 PY
-grep -c MUTATION src/lib/validation/armor.ts     # MUST print 0
+grep -c MUTATION src/lib/validation/set-plan.ts  # MUST print 0
 npx vitest run tests/validation/armor.test.ts    # green again
 ```
 
@@ -353,7 +408,7 @@ Run: `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Expected: 431 passing (424 + 7), 53 files, 0 failing. `tsc` and `eslint` clean.
 
 ```bash
-git add src/lib/types/build.ts src/lib/validation/types.ts src/lib/validation/armor.ts tests/validation/armor.test.ts
+git add src/lib/types/build.ts src/lib/validation/set-plan.ts src/lib/validation/types.ts src/lib/validation/index.ts src/lib/validation/armor.ts tests/validation/armor.test.ts
 git commit -m "feat(validation): add targetedSetBonuses + the SET_TARGET_INVALID rule
 
 The solver never writes armor.pieces, so a prescribed bonus written to
@@ -368,8 +423,14 @@ thresholds are cumulative, and total pieces <= 4.
 No achievability rule, measured rather than assumed: every (set, class) pair
 covers all 5 slots (168/168), so it could never fire.
 
-SET_PIECE_BUDGET lives in types/build.ts rather than the solver module as the
-spec said, because validation needs it and must not import the solver."
+The four legality rules live in a SHARED predicate, validation/set-plan.ts, not
+in the rule body: Task 6's resolveSolverEnv needs exactly the same rules to
+explain an unsatisfiable pinned input. targetPlanProblems returns structured
+problems rather than formatted messages so the two callers present them
+differently - one violation per problem here, one accumulated reason there.
+It lives in validation rather than the solver (where the spec put the budget
+constant) because validation must not import the solver, and the solver already
+imports validation."
 ```
 
 ---
@@ -381,7 +442,8 @@ spec said, because validation needs it and must not import the solver."
 - Test: `tests/solver/set-bonuses.test.ts`
 
 **Interfaces:**
-- Consumes: `TargetedSetBonus`, `SET_PIECE_BUDGET` from `@/lib/types` (Task 1).
+- Consumes: `TargetedSetBonus` from `@/lib/types` and `SET_PIECE_BUDGET` from `@/lib/validation`
+  (both Task 1).
 - Produces: `SetBonusOption { target: TargetedSetBonus; element: BuildElement }`,
   `deriveSetBonusPool(ctx: SolverContext): SetBonusOption[]`,
   `deriveSetBonusReach(ctx: SolverContext, targets: readonly TargetedSetBonus[]): BuildElement[]`,
@@ -406,7 +468,8 @@ import { describe, expect, it } from "vitest";
 import { loadDataset } from "@/lib/data";
 import { createLookup } from "@/lib/validation";
 import type { ArmorSet, DerivedDataset } from "@/lib/types";
-import { EMPTY_TAGS, SET_PIECE_BUDGET } from "@/lib/types";
+import { EMPTY_TAGS } from "@/lib/types";
+import { SET_PIECE_BUDGET } from "@/lib/validation";
 
 import {
   deriveSetBonusPool, deriveSetBonusReach, remainingPieceBudget,
@@ -589,7 +652,7 @@ Create `src/lib/solver/set-bonuses.ts`:
 
 ```typescript
 import type { ArmorSetBonus, Hash, KeywordTags, TargetedSetBonus } from "@/lib/types";
-import { SET_PIECE_BUDGET } from "@/lib/types";
+import { SET_PIECE_BUDGET } from "@/lib/validation";
 
 import type { BuildElement } from "@/lib/synergy";
 
@@ -1591,12 +1654,15 @@ setBonusReach push reddens both."
 - Test: `tests/solver/infeasibility.test.ts`
 
 **Interfaces:**
-- Consumes: `SET_PIECE_BUDGET` (Task 1), `remainingPieceBudget` (Task 2).
+- Consumes: `targetPlanProblems` from `@/lib/validation` (Task 1) — the SHARED legality predicate.
 - Produces: `InfeasibilityCode` gains `"SET_TARGET_PLAN_ILLEGAL"`.
 
 **Why:** a silently-ignored bad pin is precisely the defect slice 4 closed with
 `EXOTIC_PIN_CONTRADICTS_PINNED_PIECE`. Nothing can pin a plan through the UI yet; this keeps the seam
 honest for when something can. Causes **accumulate** rather than short-circuit, per slice 4.
+
+**Do NOT re-implement the legality rules here** — call `targetPlanProblems` and map its structured
+problems into one accumulated reason. The validator (Task 1) is the other caller.
 
 - [ ] **Step 1: Add the code**
 
@@ -1673,43 +1739,31 @@ In `resolveSolverEnv`, alongside the other pinned-input checks (before the
 
 ```typescript
   // A PINNED targeted plan must itself be legal. Reported rather than silently extended: an
-  // ignored bad pin is the defect slice 4 closed for exotics. This duplicates the validator's
-  // `targetedSetBonusPlan` conditions on purpose — the validator judges a finished build, while
-  // this explains an unsatisfiable INPUT before the beam runs, and slice 4's contract is that
-  // env-level codes are proofs about the inputs.
+  // ignored bad pin is the defect slice 4 closed for exotics.
+  //
+  // The rules come from the SHARED predicate `targetPlanProblems` (Task 1), which the validator's
+  // `targetedSetBonusPlan` also uses — one source of truth, two presentations. The validator
+  // judges a finished build and emits one violation per problem; this explains an unsatisfiable
+  // INPUT before the beam runs and accumulates every problem into one reason, per slice 4's
+  // contract that causes accumulate rather than short-circuit.
   const pinnedTargets = base.armor.targetedSetBonuses ?? [];
   if (pinnedTargets.length > 0) {
-    const seenSets = new Set<Hash>();
-    const problems: string[] = [];
-    for (const t of pinnedTargets) {
-      if (t.pieceCount !== 2 && t.pieceCount !== 4) {
-        problems.push(`set ${t.setHash} is pinned at ${t.pieceCount} pieces, but a set bonus `
-          + "activates at 2 or 4");
-      }
-      if (seenSets.has(t.setHash)) {
-        problems.push(`set ${t.setHash} is pinned more than once, but thresholds are cumulative `
-          + "so one entry per set is both sufficient and required");
-      }
-      seenSets.add(t.setHash);
-    }
-    if (remainingPieceBudget(pinnedTargets) < 0) {
-      problems.push(`the pinned plan needs ${SET_PIECE_BUDGET - remainingPieceBudget(pinnedTargets)}`
-        + ` legendary pieces but only ${SET_PIECE_BUDGET} are available`);
-    }
+    const problems = targetPlanProblems(
+      pinnedTargets,
+      (setHash) => ctx.lookup.armorSet(setHash) !== undefined,
+    );
     if (problems.length > 0) {
       reasons.push({
         code: "SET_TARGET_PLAN_ILLEGAL",
-        message: `The pinned set-bonus plan is not achievable: ${problems.join("; ")}.`,
+        message: "The pinned set-bonus plan is not achievable: "
+          + `${problems.map((p) => p.detail).join("; ")}.`,
         hashes: pinnedTargets.map((t) => t.setHash),
       });
     }
   }
 ```
 
-Add `SET_PIECE_BUDGET` to the `@/lib/types` value import in `beam.ts`.
-
-Note `remainingPieceBudget` returns a NEGATIVE number for an over-budget plan, which is why the test
-is `< 0` rather than `> SET_PIECE_BUDGET`.
+Add `targetPlanProblems` to `beam.ts`'s existing value import from `@/lib/validation`.
 
 - [ ] **Step 5: Run and verify they pass**
 
@@ -1744,10 +1798,11 @@ A silently-ignored bad pin is the defect slice 4 closed with
 EXOTIC_PIN_CONTRADICTS_PINNED_PIECE. Nothing can pin a plan through the UI yet;
 this keeps the seam honest for when something can.
 
-Deliberately duplicates targetedSetBonusPlan's conditions: the validator judges
-a finished build, while this explains an unsatisfiable INPUT before the beam
-runs, which is slice 4's env-level contract. Problems accumulate into one
-reason naming all of them rather than short-circuiting on the first."
+Shares the four legality rules with the validator through targetPlanProblems
+rather than re-implementing them: the validator judges a finished build and
+emits one violation per problem, while this explains an unsatisfiable INPUT
+before the beam runs and accumulates every problem into one reason, per slice
+4's contract that causes accumulate rather than short-circuit."
 ```
 
 ---
@@ -1774,9 +1829,8 @@ import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import { loadDataset } from "@/lib/data";
-import { createLookup, validateBuild } from "@/lib/validation";
+import { createLookup, SET_PIECE_BUDGET, validateBuild } from "@/lib/validation";
 import type { Build, SubclassElement, GuardianClass } from "@/lib/types";
-import { SET_PIECE_BUDGET } from "@/lib/types";
 
 import { solve } from "@/lib/solver";
 
@@ -2069,9 +2123,10 @@ decision → Task 4; the synthetic admissibility gate and the single-stage reaso
 the two default-on gates → Task 7; `setBonusNames` and the page row → Task 8. The reach trap (no
 tag-signature dedup) is carried in Global Constraints **and** in Task 2's implementation comment.
 
-**Two spec deviations, both deliberate and flagged in place.** `SET_PIECE_BUDGET` lives in
-`src/lib/types/build.ts` rather than the solver module, because validation needs it and must not
-import the solver (Task 1, Step 1). And `deriveSetBonusPool` returns `SetBonusOption[]` (target +
+**Two spec deviations, both deliberate and flagged in place.** `SET_PIECE_BUDGET` and the four
+legality rules live in `src/lib/validation/set-plan.ts` rather than the solver module, because TWO
+callers need the same rules (the validator rule and `resolveSolverEnv`) and validation must not
+import the solver (Task 1). And `deriveSetBonusPool` returns `SetBonusOption[]` (target +
 precomputed element) rather than bare `TargetedSetBonus[]`, because `generateCandidates` has no
 `Lookup` with which to resolve a candidate's element — established in Task 2, where the module is
 created, so Task 4 only consumes it. `deriveSetBonusReach` takes bare **targets** rather than
