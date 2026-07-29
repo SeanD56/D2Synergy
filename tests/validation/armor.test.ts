@@ -171,3 +171,80 @@ describe("classConsistency — build class match (slice 2b)", () => {
     )).toEqual(["ARMOR_CLASS_MISMATCH"]);
   });
 });
+
+describe("targetedSetBonusPlan", () => {
+  // This file's top-level `lookup` mock (above) has no `armorSet` entries, so add the smallest
+  // fixture — two sets — that lets the plan-legality rule resolve a set hash. Numbered away from
+  // the 900/901 pair used above to keep the two fixture groups visually distinct.
+  const SET_A = 700;
+  const SET_B = 701;
+  const setLookup: Partial<Lookup> = {
+    armorSet: (h) =>
+      (([SET_A, SET_B].includes(h)
+        ? { hash: h, name: `Set${h}`, setItemHashes: [], bonuses: [] }
+        : undefined) as never),
+  };
+
+  // A build carrying ONLY targets and no pieces — exactly what the solver produces. Built off
+  // `base` (armor.exoticHash stays unset, like every other test in this file) rather than a
+  // standalone literal: with no pieces and no exoticHash, `exoticCount`/`classConsistency`/
+  // `slotUniqueness`/`setBonusCounts` all short-circuit on their own inputs, so the ONLY rule
+  // that can possibly fire against `targeted(...)` is the one under test.
+  const targeted = (targetedSetBonuses: { setHash: number; pieceCount: number }[]): Build => ({
+    ...base,
+    armor: { ...base.armor, targetedSetBonuses },
+  });
+
+  // THE assertion that proves the field split works. Written to `setBonuses` this emits
+  // SET_COUNT_INVALID on every solver build, because the solver never writes `armor.pieces`.
+  it("accepts a solver-shaped build with targets and NO pieces, with zero game violations", () => {
+    // Every code armorRules can emit is category "game" (none of these four rules emit
+    // "policy"), so an empty code list from `run` is equivalent to zero game violations.
+    expect(run(targeted([{ setHash: SET_A, pieceCount: 4 }]), setLookup)).toEqual([]);
+  });
+
+  it("accepts each legal plan shape", () => {
+    for (const plan of [
+      [],
+      [{ setHash: SET_A, pieceCount: 2 }],
+      [{ setHash: SET_A, pieceCount: 4 }],
+      [{ setHash: SET_A, pieceCount: 2 }, { setHash: SET_B, pieceCount: 2 }],
+    ]) {
+      const codes = run(targeted(plan), setLookup);
+      expect(codes, JSON.stringify(plan)).not.toContain("SET_TARGET_INVALID");
+    }
+  });
+
+  it("rejects a plan needing more than 4 pieces", () => {
+    const codes = run(
+      targeted([{ setHash: SET_A, pieceCount: 4 }, { setHash: SET_B, pieceCount: 2 }]),
+      setLookup,
+    );
+    expect(codes).toContain("SET_TARGET_INVALID");
+  });
+
+  it("rejects a threshold that is not 2 or 4", () => {
+    const codes = run(targeted([{ setHash: SET_A, pieceCount: 3 }]), setLookup);
+    expect(codes).toContain("SET_TARGET_INVALID");
+  });
+
+  it("rejects the same set targeted twice, since thresholds are cumulative", () => {
+    const codes = run(
+      targeted([{ setHash: SET_A, pieceCount: 2 }, { setHash: SET_A, pieceCount: 2 }]),
+      setLookup,
+    );
+    expect(codes).toContain("SET_TARGET_INVALID");
+  });
+
+  it("rejects a set hash absent from the dataset", () => {
+    const codes = run(targeted([{ setHash: 424242, pieceCount: 2 }]), setLookup);
+    expect(codes).toContain("SET_TARGET_INVALID");
+  });
+
+  it("is inert when the field is absent, so no existing build changes verdict", () => {
+    const build = targeted([]);
+    delete (build.armor as { targetedSetBonuses?: unknown }).targetedSetBonuses;
+    const codes = run(build, setLookup);
+    expect(codes).not.toContain("SET_TARGET_INVALID");
+  });
+});

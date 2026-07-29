@@ -1,6 +1,9 @@
 import type { ArmorSlot, Build, GuardianClass, Hash } from "@/lib/types";
 
 import type { Lookup, Rule, Violation } from "./types";
+// Sibling import, not the `@/lib/validation` barrel: importing the barrel from inside
+// `validation/` would be circular (the barrel re-exports this file's own `armorRules`).
+import { targetPlanProblems } from "./set-plan";
 
 function specifiedPieces(build: Build) {
   return build.armor.pieces.filter((p) => p.itemHash !== undefined);
@@ -172,9 +175,32 @@ const setBonusCounts: Rule = (build, lookup) => {
   return out;
 };
 
+/**
+ * The TARGETED set-bonus plan is internally legal.
+ *
+ * Deliberately says nothing about `armor.pieces` — that is `setBonusCounts`' job for ACTIVE
+ * bonuses. A target is a goal, so it is checkable without knowing which pieces are worn, which is
+ * precisely why the two claims live in different fields.
+ *
+ * No ACHIEVABILITY check, and that is measured rather than assumed: every (set, class) pair covers
+ * all 5 armour slots (168/168 on manifest 244213.26.06.29.2000-1-bnet.65583), so a targeted set is
+ * always obtainable by any class. A rule here could never fire.
+ */
+const targetedSetBonusPlan: Rule = (build, lookup) =>
+  targetPlanProblems(
+    build.armor.targetedSetBonuses ?? [],
+    (setHash) => lookup.armorSet(setHash) !== undefined,
+  ).map((problem) => ({
+    code: "SET_TARGET_INVALID",
+    category: "game",
+    message: `Invalid targeted set-bonus plan: ${problem.detail}.`,
+    subject: { kind: "armorSet", hash: problem.setHash },
+  }));
+
 export const armorRules: Rule[] = [
   exoticCount,
   classConsistency,
   slotUniqueness,
   setBonusCounts,
+  targetedSetBonusPlan,
 ];

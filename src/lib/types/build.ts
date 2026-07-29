@@ -58,6 +58,25 @@ export interface ActiveSetBonus {
   requiredCount: number;
 }
 
+/**
+ * A set bonus the build is TARGETING — a goal, not a state.
+ *
+ * Distinct from `ActiveSetBonus` on purpose, and the distinction is load-bearing:
+ * `ActiveSetBonus` claims "this bonus IS active", which `setBonusCounts` validates against the
+ * pieces in `armor.pieces`. The solver never writes `armor.pieces` (that is SP4's job), so a
+ * prescribed bonus written to `setBonuses` fails on every solver-produced build. This field claims
+ * only "obtain this many pieces of this set", which is checkable without knowing the pieces.
+ *
+ * `pieceCount` is 2 or 4, and thresholds are CUMULATIVE: 4 pieces fire the set's 2-piece bonus as
+ * well as its 4-piece bonus. So one entry per set is sufficient and `{A:2, A:4}` is not a distinct
+ * plan — it IS `{A:4}`.
+ */
+export interface TargetedSetBonus {
+  setHash: Hash;
+  /** Pieces to obtain: 2 or 4. */
+  pieceCount: number;
+}
+
 /** DIM-style per-stat floor/ceiling target for armor optimization. */
 export interface StatPriority {
   statHash: Hash;
@@ -89,6 +108,13 @@ export interface ArmorLoadout {
   exoticHash?: Hash;
   pieces: ArmorPiece[];
   setBonuses: ActiveSetBonus[];
+  /**
+   * Set bonuses the build is TARGETING, as opposed to `setBonuses` which are ACTIVE.
+   *
+   * Optional so the 32 existing `ArmorLoadout` literals across 27 files stay valid; inside the
+   * solver's `Selection` the equivalent field is REQUIRED, which is where forwarding bugs live.
+   */
+  targetedSetBonuses?: TargetedSetBonus[];
   statPriorities: StatPriority[];
   modHashes: Hash[];
 }

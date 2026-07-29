@@ -31,6 +31,8 @@ export {
   canonicalModCapacityModel,
 } from "./mod-capacity";
 export type { ModCapacityModel, ModCapacity, ModSocket, PlaceableMod } from "./mod-capacity";
+export { SET_PIECE_BUDGET, targetPlanProblems } from "./set-plan";
+export type { TargetPlanProblem } from "./set-plan";
 export type {
   Lookup,
   Rule,
