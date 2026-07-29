@@ -33,6 +33,7 @@ empty working tree.
 **🎯 The user specified a four-feature ROADMAP on 2026-07-29 — see "Feature roadmap" below:**
 Armor Charge → ability uptime → a healing floor → preferred exotics/weapons. Read it before planning
 any work beyond the set-bonus dimension; dependency order differs from the stated priority order.
+**It does NOT reorder the current queue** (user, 2026-07-29): finish the set-bonus dimension first.
 
 ## Doc pointers
 
@@ -585,10 +586,13 @@ while designing set bonuses — see
 emitted mod data returns 0 **vacuously**. The tagger runs on MANIFEST text during ingest, so a
 vocabulary addition would tag mods too — measure against the manifest, never against `data/mods.json`.
 
-**⚠️ Decide before building whether STACKS matter.** Armor Charge is a stacking resource with gain,
-spend and cap mechanics. The synergy model is producer→consumer over keywords, which can express
-"produces armor_charge" / "consumes armor_charge" but models no stack count or cap. If stack depth
-drives the interactions the user cares about, this needs more than a vocabulary entry.
+**✅ The producer→consumer model is the RIGHT fit — user, 2026-07-29: "F1 is critical for the
+producer→consumer model, as that is exactly how armor charges function."** So this is a vocabulary
+addition against the existing model, not a modelling rework. Do not redesign the synergy model for it.
+
+**Still unaddressed (a nuance, not a blocker):** Armor Charge has stack counts and a cap, and keyword
+tags carry neither. Producer→consumer captures the interaction; stack DEPTH would need something more.
+Raise it with the user if a specific interaction turns out to need it — do not pre-build for it.
 
 **Prerequisite:** the vocabulary/ingest slice. Cheap, but it is a re-ingest, so follow the ingest
 repair's discipline — mutation-proven discriminators and simulated contract floors.
@@ -622,7 +626,17 @@ honest and opt-in, instead of silently reranking. Weigh "reject" vs "penalise" w
 
 ### F4 — Preferred exotics / weapon types (user: tuning step, do last; expects big output impact)
 
-**This maps onto an EXISTING, WIRED, EMPTY seam — it is the cheapest of the four.**
+**⛔ BLOCKED ON THE USER, NOT ON US (user, 2026-07-29): "I need to do my own research on the current
+game state and meta, so that will be deferred at least a little bit."** The seam is ready; the CONTENT
+is the user's to supply.
+
+**⚠️ Do NOT author `CURATED_OVERLAY` entries from your own read of the meta.** Which exotics and
+weapon types are strong is live balance knowledge, not manifest structure, and the model has no
+current-season visibility. Inventing entries here is the same failure mode as the SP4 roll values and
+the "energy deprecated" note: plausible, well-formatted, and wrong in a way that silently skews every
+recommendation. Wait for the user's research, then cite and date it in code as SP4 requires.
+
+**This maps onto an EXISTING, WIRED, EMPTY seam — it is the cheapest of the four ONCE UNBLOCKED.**
 `CURATED_OVERLAY` (`src/lib/synergy/weights.ts:17`) is `[]` and is already consumed by both
 `score.ts` and `bound.ts:74`. Authoring entries is already a parked SP1 follow-up.
 
