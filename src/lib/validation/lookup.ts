@@ -1,4 +1,4 @@
-import type { ArtifactPerk, DerivedDataset, Hash, KeywordTags } from "@/lib/types";
+import type { ArtifactPerk, DerivedDataset, Hash, KeywordTags, Mod } from "@/lib/types";
 
 import type { Lookup } from "./types";
 
@@ -44,6 +44,16 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     if (!existing || (!nonEmptyTags(existing) && nonEmptyTags(p))) perksByName.set(key, p);
   }
 
+  // category -> mods, precomputed once. Hash-sorted so the solver's pools are deterministic
+  // without each caller re-sorting.
+  const modsByCategory = new Map<string, Mod[]>();
+  for (const m of dataset.mods ?? []) {
+    const list = modsByCategory.get(m.plugCategory);
+    if (list) list.push(m);
+    else modsByCategory.set(m.plugCategory, [m]);
+  }
+  for (const list of modsByCategory.values()) list.sort((a, b) => a.hash - b.hash);
+
   return {
     weapon: (hash) => weapons.get(hash),
     armor: (hash) => armor.get(hash),
@@ -56,6 +66,7 @@ export function createLookup(dataset: DerivedDataset): Lookup {
     perkByName: (name) => perksByName.get(name.toLowerCase()),
     plugTags: (hash) => dataset.plugTags?.[hash],
     socketCategories: (hash) => dataset.socketTypes?.[hash],
+    modsForCategory: (category) => modsByCategory.get(category) ?? [],
     mod: (hash) => mods.get(hash),
     artifactPerk: (hash) => artifactPerks.get(hash),
   };
