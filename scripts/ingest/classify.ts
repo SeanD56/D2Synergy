@@ -65,26 +65,36 @@ export function guardianClassFromType(classType: number): GuardianClass {
 export type PlugKind = "aspect" | "fragment" | "mod" | "other";
 
 /**
- * Is this a placeholder "Empty … Socket" plug rather than buildcrafting content?
+ * Is this plug a placeholder or an inert stub rather than buildcrafting content?
  *
- * MEASURED on manifest `244213.26.06.29.2000-1-bnet.65583` across all 205 aspect/fragment
- * plugs: the 31 placeholders carry an **empty `itemTypeDisplayName`** with no
- * `investmentStats` and no `perks`, while all 174 real plugs carry a non-empty type name
- * ("Solar Aspect", "Stasis Fragment", …) and both arrays non-empty. Zero overlap on any of
- * the three, so the type-name test alone is exact; it is preferred because it keys on the
- * plug having no item TYPE (locale-safe — only emptiness is tested, never the text).
+ * **Rule: it carries neither `investmentStats` nor `perks`, so it can do nothing.** A plug with
+ * no stat contribution and no sandbox perk has no mechanical effect by construction — that is
+ * what makes this structural rather than a name-matching heuristic, and locale-safe.
  *
- * ⚠️ `displayProperties.description` is NOT a discriminator and is inverted: every real
- * plug has an EMPTY description and every placeholder has one. Do not "improve" this by
- * switching to a description check.
+ * MEASURED on manifest `244213.26.06.29.2000-1-bnet.65583`, exact on BOTH populations:
+ * - **Aspects/fragments** (205 plugs): the 31 "Empty … Socket" placeholders all have neither;
+ *   all 174 real plugs have both. Zero overlap.
+ * - **Mods** (515 plugs): the 53 name-identifiable placeholders ("Empty Mod Socket",
+ *   "Empty Activity Mod Socket", "Locked …") all have neither, and it additionally catches 11
+ *   further entries that are equally inert — 5 Ghost mod SOCKETS ("Activity Mod Socket" typed
+ *   "Activity Ghost Mod"), 3 nameless entries, the "Upgrade to Artifice Armor" action, and 2
+ *   "Solar Ordnance Mod" stubs with 0 energy and no effect. Zero real content is lost: no real
+ *   mod has perks-but-no-stats or stats-but-no-perks in a way this drops.
  *
- * Excluded for the same reason as dummy items: they are equippable in game but they are
- * not content, and the solver would otherwise treat "Empty Aspect Socket" as a choosable
- * aspect and "Empty Fragment Socket" as a fragment worth a slot.
+ * ⚠️ Two discriminators measured and REJECTED, recorded so they are not retried:
+ * - **`itemTypeDisplayName` emptiness** works for aspects/fragments but FAILS badly for mods —
+ *   52 of 53 mod placeholders carry a real-looking type name ("Helmet Armor Mod", "Legacy Armor
+ *   Mod", …), so it would keep almost all of them while dropping 10 real mods.
+ * - **`displayProperties.description`** is not a discriminator anywhere and is INVERTED for
+ *   aspects/fragments (every real plug has an empty description; every placeholder has one).
+ *
+ * Excluded for the same reason as dummy items: these are equippable/selectable in game but they
+ * are not content, and the solver would otherwise "choose" an Empty Mod Socket.
  */
 function isPlaceholderPlug(item: DestinyInventoryItemDefinition): boolean {
-  return !item.itemTypeDisplayName;
+  return (item.investmentStats?.length ?? 0) === 0 && (item.perks?.length ?? 0) === 0;
 }
+
 
 const values = <T>(table: Record<number, T> | undefined): T[] =>
   table ? Object.values(table) : [];
@@ -249,17 +259,17 @@ export function createClassifier(slice: ManifestSlice): Classifier {
       // (class_abilities, melee, movement, supers, grenades) must stay "other".
       const aspectCategory = id.includes("aspects") || id.includes("totems");
       const fragmentCategory = id.includes("fragments") || id.includes("trinkets");
-      if (aspectCategory || fragmentCategory) {
-        // An "Empty Aspect Socket" lives in a real aspect category, so this must be tested
-        // INSIDE the branch rather than up front. Deliberately scoped to aspects/fragments:
-        // that is the only population `isPlaceholderPlug` was measured against.
-        // ⚠️ Mods have the same problem ("Empty Mod Socket" is in `data/mods.json`) but the
-        // discriminator is UNMEASURED there, so mods are left exactly as they were. Measure
-        // before extending this — slice 2c, which makes mods solver-chosen, is when it bites.
-        if (isPlaceholderPlug(item)) return "other";
-        return aspectCategory ? "aspect" : "fragment";
+      const modCategory = id.startsWith("enhancements");
+      // Placeholders live in REAL categories ("Empty Aspect Socket" sits in an aspect category,
+      // "Empty Mod Socket" in a mod one), so this is tested after the category is known rather
+      // than up front. Now applied to mods as well: the rule was measured against that
+      // population (see `isPlaceholderPlug`) and is exact there too.
+      if ((aspectCategory || fragmentCategory || modCategory) && isPlaceholderPlug(item)) {
+        return "other";
       }
-      if (id.startsWith("enhancements")) return "mod";
+      if (aspectCategory) return "aspect";
+      if (fragmentCategory) return "fragment";
+      if (modCategory) return "mod";
       return "other";
     },
     weaponSlotForBucket: (bucketHash) =>

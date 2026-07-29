@@ -120,18 +120,39 @@ describe("plugKind — placeholder exclusion", () => {
   });
 
   /**
-   * Scope guard. `isPlaceholderPlug` was measured ONLY against aspect/fragment plugs, so it
-   * must not reach mods — whose real entries are not known to carry a type name. Mods DO
-   * have the same placeholder problem ("Empty Mod Socket" is in data/mods.json), but fixing
-   * that needs its own measurement; widening the check without one would silently drop
-   * legitimate mods. Deleting the `aspectCategory || fragmentCategory` guard in `plugKind`
-   * turns this red.
+   * Mods ARE now in scope — the discriminator was measured against that population and is exact
+   * there too, so the earlier deliberate narrowing has been lifted.
+   *
+   * The rule is STRUCTURAL: a plug with neither `investmentStats` nor `perks` can do nothing.
+   * Two alternatives were measured and rejected, asserted below so they are not retried:
+   *  - `itemTypeDisplayName` emptiness: works for aspects/fragments, FAILS for mods (52 of 53 mod
+   *    placeholders carry a real-looking type name like "Helmet Armor Mod").
+   *  - `description`: not a discriminator anywhere, and inverted for aspects/fragments.
    */
-  it("does NOT apply placeholder exclusion to mods — that population is unmeasured", () => {
-    const modWithoutTypeName = {
+  it("excludes an inert mod placeholder even when it has a real-looking type name", () => {
+    // The measured mod-placeholder shape: plausible type name, no stats, no perks.
+    const modPlaceholder = {
       ...placeholderPlug(9, "enhancements.v2_head"),
-      displayProperties: { name: "Some Mod", description: "" },
+      itemTypeDisplayName: "Helmet Armor Mod",
+      displayProperties: { name: "Empty Mod Socket", description: "Empty socket." },
     };
-    expect(kindOf(modWithoutTypeName)).toBe("mod");
+    expect(kindOf(modPlaceholder)).toBe("other");
+  });
+
+  it("keeps a real mod that has stats and perks but no type name", () => {
+    // Guards against regressing to the itemTypeDisplayName rule, which would drop 10 real mods.
+    const realMod = { ...realPlug(10, "enhancements.v2_head", ""), itemTypeDisplayName: "" };
+    expect(kindOf(realMod)).toBe("mod");
+  });
+
+  it("excludes an inert stub that is not named like a placeholder at all", () => {
+    // The 11 extra entries the structural rule catches: Ghost mod SOCKETS, nameless entries,
+    // "Upgrade to Artifice Armor", and do-nothing "Solar Ordnance Mod" stubs.
+    const inertStub = {
+      ...placeholderPlug(11, "enhancements.v2_arms"),
+      itemTypeDisplayName: "Arms Armor Mod",
+      displayProperties: { name: "Solar Ordnance Mod", description: "Legacy." },
+    };
+    expect(kindOf(inertStub)).toBe("other");
   });
 });

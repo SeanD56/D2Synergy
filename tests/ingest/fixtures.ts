@@ -122,11 +122,20 @@ export const legendaryHelmetItem = {
 };
 
 /** A helmet-restricted armor mod. */
+/**
+ * A REAL mod. `investmentStats` and `perks` are load-bearing, not decoration: `plugKind`
+ * classifies a plug with neither as an inert placeholder (measured exact across mods and
+ * aspects/fragments alike), so a mod fixture without them is classified "other" and never
+ * reaches `transformMods`.
+ */
 export const modItem = {
   hash: H.modItem,
   itemType: 19,
+  itemTypeDisplayName: "Helmet Armor Mod",
   displayProperties: { name: "Test Helmet Mod", description: "Makes targets volatile." },
   plug: { plugCategoryIdentifier: "enhancements.v2_head", energyCost: { energyCost: 3 } },
+  investmentStats: [{ statTypeHash: 4242, value: 1 }],
+  perks: [{ perkHash: H.traitSandboxPerk }],
 };
 
 /** Build a manifest slice containing the given items + sandbox perks. */
