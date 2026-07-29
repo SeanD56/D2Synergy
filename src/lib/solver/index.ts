@@ -10,6 +10,8 @@ export { neutralStatFit } from "./stat-fit";
 export { deriveExoticArmorPool } from "./armor";
 export type {
   BoundFn,
+  Infeasibility,
+  InfeasibilityCode,
   RankedBuild,
   SolveOptions,
   SolveResult,

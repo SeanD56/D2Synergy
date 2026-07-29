@@ -2,7 +2,7 @@ import type { Build } from "@/lib/types";
 
 import { synergyUpperBound } from "@/lib/synergy";
 
-import { beamSearch, buildSolverEnv, type SolverState } from "./beam";
+import { beamSearch, resolveSolverEnv, type SolverState } from "./beam";
 import type { BoundFn, RankedBuild, SolveOptions, SolveResult, SolverContext } from "./types";
 
 /**
@@ -17,11 +17,26 @@ import type { BoundFn, RankedBuild, SolveOptions, SolveResult, SolverContext } f
  * builds) iff the pinned inputs admit no completion.
  */
 export function solve(build: Build, ctx: SolverContext, options: SolveOptions = {}): SolveResult {
-  const env = buildSolverEnv(build, ctx, options);
-  if (env === null) return { builds: [], feasible: false };
+  const { env, reasons } = resolveSolverEnv(build, ctx, options);
+  if (env === null) return { builds: [], feasible: false, reasons };
 
   const bound: BoundFn = options.bound ?? synergyUpperBound;
   const completed = beamSearch(env, bound);
+
+  if (completed.length === 0) {
+    // The pinned inputs passed every env-level check, yet the search produced no filled
+    // build — every path ran into a prune (today: the ammo eager-prune) or a dead end.
+    // Reported as its own SEARCH-level code rather than `feasible: true` with zero builds,
+    // which told a UI "your build is fine" while handing it nothing to show.
+    return { builds: [], feasible: false, reasons: [{
+      code: "NO_COMPLETION_FOUND",
+      message: "The pinned inputs are individually satisfiable, but the search finished "
+        + "without completing a single build — every branch hit a dead end (for example, "
+        + "two open non-Power slots that can only be filled with Primary-ammo weapons). "
+        + "Because beam search is incomplete, this reports what the search found rather "
+        + "than proving no build exists.",
+    }] };
+  }
 
   const ranked = completed
     .map((state: SolverState): RankedBuild & { key: string } => {
@@ -32,5 +47,5 @@ export function solve(build: Build, ctx: SolverContext, options: SolveOptions = 
     .slice(0, env.topN)
     .map(({ key: _key, ...rest }) => rest);
 
-  return { builds: ranked, feasible: true };
+  return { builds: ranked, feasible: true, reasons: [] };
 }
