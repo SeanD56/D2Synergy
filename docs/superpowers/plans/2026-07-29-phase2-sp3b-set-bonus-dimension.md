@@ -382,9 +382,16 @@ spec said, because validation needs it and must not import the solver."
 
 **Interfaces:**
 - Consumes: `TargetedSetBonus`, `SET_PIECE_BUDGET` from `@/lib/types` (Task 1).
-- Produces: `deriveSetBonusPool(ctx: SolverContext): TargetedSetBonus[]`,
-  `deriveSetBonusReach(ctx: SolverContext, pool: TargetedSetBonus[]): BuildElement[]`,
-  `remainingPieceBudget(targets: readonly TargetedSetBonus[]): number`. Task 4 imports all three.
+- Produces: `SetBonusOption { target: TargetedSetBonus; element: BuildElement }`,
+  `deriveSetBonusPool(ctx: SolverContext): SetBonusOption[]`,
+  `deriveSetBonusReach(ctx: SolverContext, targets: readonly TargetedSetBonus[]): BuildElement[]`,
+  `remainingPieceBudget(targets: readonly TargetedSetBonus[]): number`. Task 4 imports all four.
+
+**Why the pool carries a precomputed `element` rather than returning bare targets:**
+`generateCandidates` (Task 4) has no `Lookup` — every candidate's `element` is resolved by the env
+before it gets there. Carrying it on the pool entry is how a `setBonus` candidate gets an element
+without widening `CandidateEnv` with a lookup. `deriveSetBonusReach` deliberately takes bare
+**targets**, not options, so it is callable from a test without fabricating an element.
 
 - [ ] **Step 1: Write the failing tests**
 
@@ -459,9 +466,12 @@ function ctxFor(armorSets: ArmorSet[]) {
 }
 
 describe("deriveSetBonusPool", () => {
+  /** The decisions the pool offers, without the precomputed elements. */
+  const targetsOf = (sets: ArmorSet[]) =>
+    deriveSetBonusPool(ctxFor(sets)).map((o) => o.target);
+
   it("emits exactly one option per TAGGED bonus", () => {
-    const pool = deriveSetBonusPool(ctxFor([setOnly2, setOnly4, setBoth, setNeither]));
-    expect(pool).toEqual([
+    expect(targetsOf([setOnly2, setOnly4, setBoth, setNeither])).toEqual([
       { setHash: 900, pieceCount: 2 },
       { setHash: 901, pieceCount: 4 },
       { setHash: 902, pieceCount: 2 },
@@ -472,23 +482,30 @@ describe("deriveSetBonusPool", () => {
   it("omits a 4-piece option when only the 2-piece bonus is tagged", () => {
     // Spending 4 pieces to activate exactly the tags 2 pieces already buy is strictly
     // dominated while there is no stat model. Revisit at SP4.
-    const pool = deriveSetBonusPool(ctxFor([setOnly2]));
-    expect(pool).toEqual([{ setHash: 900, pieceCount: 2 }]);
+    expect(targetsOf([setOnly2])).toEqual([{ setHash: 900, pieceCount: 2 }]);
   });
 
   it("omits a 2-piece option when only the 4-piece bonus is tagged", () => {
-    const pool = deriveSetBonusPool(ctxFor([setOnly4]));
-    expect(pool).toEqual([{ setHash: 901, pieceCount: 4 }]);
+    expect(targetsOf([setOnly4])).toEqual([{ setHash: 901, pieceCount: 4 }]);
   });
 
   it("excludes a set with no tagged bonus at all", () => {
-    expect(deriveSetBonusPool(ctxFor([setNeither]))).toEqual([]);
+    expect(targetsOf([setNeither])).toEqual([]);
   });
 
   it("sorts by (setHash, pieceCount) so the move order is deterministic", () => {
-    const pool = deriveSetBonusPool(ctxFor([setBoth, setOnly2]));
-    expect(pool.map((t) => `${t.setHash}x${t.pieceCount}`))
+    expect(targetsOf([setBoth, setOnly2]).map((t) => `${t.setHash}x${t.pieceCount}`))
       .toEqual(["900x2", "902x2", "902x4"]);
+  });
+
+  it("carries the THRESHOLD bonus's element on each option", () => {
+    // Candidates need an element and `generateCandidates` has no Lookup, so the pool carries it.
+    const [option] = deriveSetBonusPool(ctxFor([setOnly2]));
+    expect(option.element).toEqual({
+      hash: 9001,
+      source: "set-bonus:Two",
+      tags: { ...EMPTY_TAGS, produces: ["jolt"] },
+    });
   });
 });
 
@@ -509,7 +526,7 @@ describe("deriveSetBonusReach", () => {
     // (902,2) and (902,4) both activate 9021. It must appear ONCE, or the bound
     // double-counts one producer.
     const ctx = ctxFor([setBoth]);
-    const reach = deriveSetBonusReach(ctx, deriveSetBonusPool(ctx));
+    const reach = deriveSetBonusReach(ctx, deriveSetBonusPool(ctx).map((o) => o.target));
     expect(reach.filter((e) => e.hash === 9021)).toHaveLength(1);
     expect(reach).toHaveLength(2);
   });
@@ -549,9 +566,14 @@ describe.runIf(hasDataset)("deriveSetBonusPool — against the real dataset", ()
     expect(pool.length).toBeGreaterThanOrEqual(40);
     expect(pool.length).toBeLessThan(80);
     // Every option is a legal threshold, and no set appears at the same threshold twice.
-    const keys = pool.map((t) => `${t.setHash}x${t.pieceCount}`);
+    const keys = pool.map((o) => `${o.target.setHash}x${o.target.pieceCount}`);
     expect(new Set(keys).size).toBe(keys.length);
-    for (const t of pool) expect([2, 4]).toContain(t.pieceCount);
+    for (const o of pool) expect([2, 4]).toContain(o.target.pieceCount);
+    // Every option carries a tagged element — an untagged one could not move the bound.
+    for (const o of pool) {
+      const t = o.element.tags;
+      expect(t.produces.length + t.consumes.length + t.triggers.length).toBeGreaterThan(0);
+    }
   });
 });
 ```
@@ -590,6 +612,20 @@ function activatedBonuses(ctx: SolverContext, target: TargetedSetBonus): ArmorSe
 }
 
 /**
+ * A pool entry: the decision, plus the element its THRESHOLD bonus contributes.
+ *
+ * The element is precomputed here because `generateCandidates` has no `Lookup` with which to
+ * resolve one, and every candidate needs an `element`. It is only ever a diagnostic label:
+ * `setBonus` candidates are filtered OUT of the bound's `addable` set (see `makeState`), because
+ * `deriveSetBonusReach` covers the whole dimension — the same treatment weapon, exotic, aspect and
+ * mod moves get.
+ */
+export interface SetBonusOption {
+  target: TargetedSetBonus;
+  element: BuildElement;
+}
+
+/**
  * Every (set, threshold) worth targeting — exactly ONE option per TAGGED bonus.
  *
  * Measured 58 on manifest 244213.26.06.29.2000-1-bnet.65583: 29 tagged 2-piece + 29 tagged
@@ -609,8 +645,8 @@ function activatedBonuses(ctx: SolverContext, target: TargetedSetBonus): ArmorSe
  * 3 classes, so there is nothing to filter on. Consequently nothing in a build naturally CLOSES
  * this dimension; it is gated by `SolveOptions.chooseSetBonuses` alone.
  */
-export function deriveSetBonusPool(ctx: SolverContext): TargetedSetBonus[] {
-  const out: TargetedSetBonus[] = [];
+export function deriveSetBonusPool(ctx: SolverContext): SetBonusOption[] {
+  const out: SetBonusOption[] = [];
   for (const key of Object.keys(ctx.indexes.setToPieces)) {
     const setHash = Number(key);
     const set = ctx.lookup.armorSet(setHash);
@@ -618,10 +654,18 @@ export function deriveSetBonusPool(ctx: SolverContext): TargetedSetBonus[] {
     for (const bonus of set.bonuses) {
       if (bonus.requiredCount !== 2 && bonus.requiredCount !== 4) continue;
       if (tagSize(bonus.tags) === 0) continue;
-      out.push({ setHash, pieceCount: bonus.requiredCount });
+      out.push({
+        target: { setHash, pieceCount: bonus.requiredCount },
+        element: {
+          hash: bonus.sandboxPerkHash,
+          source: `set-bonus:${bonus.name}`,
+          tags: bonus.tags,
+        },
+      });
     }
   }
-  return out.sort((a, b) => a.setHash - b.setHash || a.pieceCount - b.pieceCount);
+  return out.sort((a, b) =>
+    a.target.setHash - b.target.setHash || a.target.pieceCount - b.target.pieceCount);
 }
 
 /**
@@ -642,11 +686,11 @@ export function deriveSetBonusPool(ctx: SolverContext): TargetedSetBonus[] {
  */
 export function deriveSetBonusReach(
   ctx: SolverContext,
-  pool: TargetedSetBonus[],
+  targets: readonly TargetedSetBonus[],
 ): BuildElement[] {
   const out: BuildElement[] = [];
   const seen = new Set<Hash>();
-  for (const target of pool) {
+  for (const target of targets) {
     for (const bonus of activatedBonuses(ctx, target)) {
       if (tagSize(bonus.tags) === 0) continue;
       if (seen.has(bonus.sandboxPerkHash)) continue;
@@ -681,9 +725,9 @@ Mutation A — admit untagged bonuses into the pool:
 python3 - <<'PY'
 p="src/lib/solver/set-bonuses.ts"
 s=open(p).read()
-old="      if (tagSize(bonus.tags) === 0) continue;\n      out.push({ setHash, pieceCount: bonus.requiredCount });"
+old="      if (tagSize(bonus.tags) === 0) continue;\n      out.push({"
 assert s.count(old)==1, f"target count {s.count(old)}"
-open(p,"w").write(s.replace(old,"      // MUTATION\n      out.push({ setHash, pieceCount: bonus.requiredCount });"))
+open(p,"w").write(s.replace(old,"      // MUTATION\n      out.push({"))
 PY
 grep -n "MUTATION" src/lib/solver/set-bonuses.ts     # MUST print a line
 npx vitest run tests/solver/set-bonuses.test.ts      # the 4 pool tests + real-data bound MUST fail
@@ -1143,10 +1187,14 @@ Extend `CandidateEnv` after `modCapacity`:
 
 ```typescript
   /**
-   * Every (set, threshold) worth targeting. ABSENT ⇒ the dimension is CLOSED (opt-in via
-   * `SolveOptions.chooseSetBonuses`). Optional so envs predating this dimension still type-check.
+   * Every (set, threshold) worth targeting, each carrying the element its THRESHOLD bonus
+   * contributes. ABSENT ⇒ the dimension is CLOSED (opt-in via `SolveOptions.chooseSetBonuses`).
+   * Optional so envs predating this dimension still type-check.
+   *
+   * The element is precomputed by `deriveSetBonusPool` rather than resolved here, because this
+   * function has no `Lookup`.
    */
-  setBonusPool?: TargetedSetBonus[];
+  setBonusPool?: SetBonusOption[];
 ```
 
 Add a trailing default parameter to `generateCandidates` — trailing, so the existing positional call
@@ -1166,72 +1214,6 @@ and emit the moves, after the mod block and before the weapon block:
     const budget = remainingPieceBudget(setBonusTargets);
     const targetedSets = new Set(setBonusTargets.map((t) => t.setHash));
     for (const option of env.setBonusPool) {
-      if (option.pieceCount > budget) continue;
-      // Thresholds are CUMULATIVE, so a second entry on an already-targeted set is a
-      // contradiction rather than a refinement.
-      if (targetedSets.has(option.setHash)) continue;
-      const set = env.lookupForSets?.(option.setHash);
-      out.push({
-        kind: "setBonus", hash: option.setHash, pieceCount: option.pieceCount,
-        element: setBonusElement(set, option),
-      });
-    }
-  }
-```
-
-**Resolve the element without adding a lookup to `CandidateEnv`.** `generateCandidates` has no
-`Lookup`, so precompute the element in the env instead: change `setBonusPool` to carry it.
-Replace the `setBonusPool` field above with:
-
-```typescript
-  /**
-   * Every (set, threshold) worth targeting, each with the element its THRESHOLD bonus contributes.
-   * ABSENT ⇒ the dimension is CLOSED (opt-in via `SolveOptions.chooseSetBonuses`).
-   *
-   * The element is carried here rather than resolved in `generateCandidates`, which has no
-   * `Lookup`. It is only ever a label for diagnostics: `setBonus` candidates are filtered OUT of
-   * the bound's `addable` set (see `makeState`), because the reach union covers the whole
-   * dimension — the same treatment weapon, exotic, aspect and mod moves get.
-   */
-  setBonusPool?: SetBonusOption[];
-```
-
-and simplify the emission body to `element: option.element`. Define the option type in
-`src/lib/solver/set-bonuses.ts` and export it:
-
-```typescript
-/** A pool entry: the decision plus the element its threshold bonus contributes. */
-export interface SetBonusOption {
-  target: TargetedSetBonus;
-  element: BuildElement;
-}
-```
-
-Then change `deriveSetBonusPool`'s return type to `SetBonusOption[]`, pushing
-
-```typescript
-      out.push({
-        target: { setHash, pieceCount: bonus.requiredCount },
-        element: {
-          hash: bonus.sandboxPerkHash,
-          source: `set-bonus:${bonus.name}`,
-          tags: bonus.tags,
-        },
-      });
-```
-
-and sort by `a.target.setHash - b.target.setHash || a.target.pieceCount - b.target.pieceCount`.
-`deriveSetBonusReach` then takes `SetBonusOption[]` and reads `option.target`. **Update Task 2's
-tests to match**: `pool.map((o) => o.target)` where they previously compared raw targets. Run
-`npx vitest run tests/solver/set-bonuses.test.ts` and keep it green before continuing.
-
-The emission body becomes:
-
-```typescript
-  if (env.setBonusPool !== undefined) {
-    const budget = remainingPieceBudget(setBonusTargets);
-    const targetedSets = new Set(setBonusTargets.map((t) => t.setHash));
-    for (const option of env.setBonusPool) {
       if (option.target.pieceCount > budget) continue;
       // Thresholds are CUMULATIVE, so a second entry on an already-targeted set is a
       // contradiction rather than a refinement.
@@ -1244,7 +1226,8 @@ The emission body becomes:
   }
 ```
 
-Import `remainingPieceBudget` and the types into `candidates.ts`.
+Import `remainingPieceBudget` and `type SetBonusOption` from `./set-bonuses`, and
+`type TargetedSetBonus` from `@/lib/types`, into `candidates.ts`.
 
 - [ ] **Step 5: Wire the env**
 
@@ -2090,8 +2073,9 @@ tag-signature dedup) is carried in Global Constraints **and** in Task 2's implem
 `src/lib/types/build.ts` rather than the solver module, because validation needs it and must not
 import the solver (Task 1, Step 1). And `deriveSetBonusPool` returns `SetBonusOption[]` (target +
 precomputed element) rather than bare `TargetedSetBonus[]`, because `generateCandidates` has no
-`Lookup` with which to resolve a candidate's element (Task 4, Step 4) — Task 2's tests are updated
-in that same step.
+`Lookup` with which to resolve a candidate's element — established in Task 2, where the module is
+created, so Task 4 only consumes it. `deriveSetBonusReach` takes bare **targets** rather than
+options, so it stays callable from a test without fabricating an element.
 
 **Type consistency.** `TargetedSetBonus` / `SET_PIECE_BUDGET` / `SetBonusOption` /
 `setBonusTargets` / `setBonusPool` / `setBonusReach` / `setBonusNames` / `chooseSetBonuses` /
