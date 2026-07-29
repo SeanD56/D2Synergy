@@ -1,17 +1,43 @@
-import type { ArmorSlot, Build, GuardianClass } from "@/lib/types";
+import type { ArmorSlot, Build, GuardianClass, Hash } from "@/lib/types";
 
-import type { Rule, Violation } from "./types";
+import type { Lookup, Rule, Violation } from "./types";
 
 function specifiedPieces(build: Build) {
   return build.armor.pieces.filter((p) => p.itemHash !== undefined);
 }
 
+/**
+ * Every exotic the build names, from EITHER armor source — `armor.pieces` and
+ * `armor.exoticHash` (see `ArmorLoadout`). The solver writes only `exoticHash` and never
+ * `pieces`, while a hand-built or SP4-populated loadout carries its exotic inside `pieces`,
+ * so any rule counting exotics must read the union or it silently mis-fires on one of them.
+ *
+ * Deduped ACROSS SOURCES: the same exotic named in both fields is ONE exotic, not two —
+ * counting it twice would raise a false `MULTIPLE_EXOTIC_ARMOR` on a perfectly ordinary
+ * build. Duplicates WITHIN `pieces` are deliberately NOT collapsed: two piece entries naming
+ * the same exotic in different slots is a genuine illegal loadout that `MULTIPLE_EXOTIC_ARMOR`
+ * has always flagged, and folding them into one would silently weaken a game floor.
+ */
+export function exoticHashes(build: Build, lookup: Lookup): Hash[] {
+  const isExotic = (h: Hash) => lookup.armor(h)?.tier === "exotic";
+  const out = specifiedPieces(build)
+    .map((p) => p.itemHash as Hash)
+    .filter(isExotic);
+  const solverChosen = build.armor.exoticHash;
+  if (solverChosen !== undefined && isExotic(solverChosen) && !out.includes(solverChosen)) {
+    out.push(solverChosen);
+  }
+  return out;
+}
+
 const exoticCount: Rule = (build, lookup) => {
   const pieces = specifiedPieces(build);
-  if (pieces.length === 0) return [];
-  const exotics = pieces.filter(
-    (p) => lookup.armor(p.itemHash as number)?.tier === "exotic",
-  );
+  const exotics = exoticHashes(build, lookup);
+  // Partial-build semantics (Phase 1): an untouched armor section never fires. Widened to
+  // the union so it stays honest, but it is behaviour-identical — with no specified pieces
+  // neither rule below can fire anyway (`exoticHash` contributes at most ONE exotic, and
+  // MISSING needs a complete five-piece set).
+  if (pieces.length === 0 && exotics.length === 0) return [];
   const out: Violation[] = [];
   if (exotics.length > 1) {
     out.push({
@@ -21,6 +47,10 @@ const exoticCount: Rule = (build, lookup) => {
       subject: { kind: "armor" },
     });
   }
+  // Completeness is still measured on `pieces` alone, unchanged from Phase 1: `exoticHash`
+  // says WHICH exotic, never how many armor slots are filled, so it cannot signal "the set
+  // is complete". What DID change is the exotic count — five legendary pieces plus a
+  // solver-chosen `exoticHash` is now correctly a one-exotic build, not a missing one.
   if (pieces.length >= 5 && exotics.length === 0) {
     out.push({
       code: "MISSING_EXOTIC_ARMOR",
@@ -33,29 +63,56 @@ const exoticCount: Rule = (build, lookup) => {
 };
 
 /**
- * Flags armor pieces spanning multiple Guardian classes. The spec's second
- * clause (piece class must match the equipped subclass's class) is deferred:
- * SubclassLoadout carries no class/subclass hash and Lookup has no reverse
- * index to derive it. Revisit when the subclass model grows a class field.
+ * Flags armor spanning multiple Guardian classes, and (slice 2b) armor whose class
+ * contradicts the build's pinned `subclass.classType`.
+ *
+ * The second clause was deferred in Phase 1 purely because the build model carried no
+ * class; slice 2b adds `SubclassLoadout.classType`, so it is enabled here. It fires ONLY
+ * when a class is pinned — otherwise every build predating slice 2b would gain a violation.
+ *
+ * `armor.exoticHash` is checked alongside `pieces` because the solver records its chosen
+ * exotic there and never writes `pieces` (that is SP4's job).
+ *
+ * NOTE it does NOT route that read through `exoticHashes`, unlike `exoticCount` and
+ * `setBonusCounts`. This rule is about the class of every armor item the build names, and is
+ * deliberately TIER-AGNOSTIC: an `exoticHash` that resolves to a non-exotic is still armor
+ * whose class must agree, and the tier filter `exoticHashes` applies would drop that case.
+ * Deduping is likewise unnecessary here — `observed` is a Set of classes already.
  */
 const classConsistency: Rule = (build, lookup) => {
-  const pieces = specifiedPieces(build);
-  const classes = new Set(
-    pieces
-      .map((p) => lookup.armor(p.itemHash as number)?.classType)
-      .filter((c): c is Exclude<GuardianClass, "any"> => Boolean(c) && c !== "any"),
+  const classOf = (hash: Hash | undefined) =>
+    hash === undefined ? undefined : lookup.armor(hash)?.classType;
+
+  const observed = new Set(
+    [
+      ...specifiedPieces(build).map((p) => classOf(p.itemHash)),
+      classOf(build.armor.exoticHash),
+    ].filter((c): c is Exclude<GuardianClass, "any"> => Boolean(c) && c !== "any"),
   );
-  if (classes.size > 1) {
-    return [
-      {
+
+  const out: Violation[] = [];
+  if (observed.size > 1) {
+    out.push({
+      code: "ARMOR_CLASS_MISMATCH",
+      category: "game",
+      message: `Armor pieces span multiple classes: ${[...observed].join(", ")}.`,
+      subject: { kind: "armor" },
+    });
+  }
+
+  const pinned = build.subclass.classType;
+  if (pinned !== undefined) {
+    const wrong = [...observed].filter((c) => c !== pinned);
+    if (wrong.length > 0) {
+      out.push({
         code: "ARMOR_CLASS_MISMATCH",
         category: "game",
-        message: `Armor pieces span multiple classes: ${[...classes].join(", ")}.`,
+        message: `Armor class ${wrong.join(", ")} does not match the build's ${pinned} subclass.`,
         subject: { kind: "armor" },
-      },
-    ];
+      });
+    }
   }
-  return [];
+  return out;
 };
 
 const slotUniqueness: Rule = (build) => {
@@ -97,9 +154,9 @@ const setBonusCounts: Rule = (build, lookup) => {
       });
     }
   }
-  const hasExotic = pieces.some(
-    (p) => lookup.armor(p.itemHash as number)?.tier === "exotic",
-  );
+  // Union, not `pieces` alone: otherwise the <=4-per-set rule silently switches off for a
+  // build whose exotic lives in `exoticHash` (which is every build the solver produces).
+  const hasExotic = exoticHashes(build, lookup).length > 0;
   if (hasExotic) {
     for (const [setHash, count] of bySet) {
       if (count > 4) {

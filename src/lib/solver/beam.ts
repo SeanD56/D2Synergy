@@ -1,4 +1,4 @@
-import type { ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
+import type { Armor, ArtifactPerk, Build, Fragment, Hash, KeywordTags, PerkConstraint, SubclassElement, WeaponSlot } from "@/lib/types";
 import { EMPTY_TAGS } from "@/lib/types";
 
 import type { Capacity, CapacityModel } from "@/lib/validation";
@@ -14,6 +14,7 @@ import {
   type Candidate,
   type WeaponPick,
 } from "./candidates";
+import { deriveExoticArmorPool, deriveExoticReach } from "./armor";
 import { neutralStatFit } from "./stat-fit";
 import type { BoundFn, SolveOptions, SolverContext, StatFit } from "./types";
 import {
@@ -48,6 +49,14 @@ export interface SolverEnv {
   weaponReach: Map<WeaponSlot, BuildElement[]>;
   /** Plug → tags resolver: side table by hash, then the name bridge, then empty. */
   resolvePlugTags: (plug: { hash: Hash; name: string }) => KeywordTags;
+  /**
+   * Class-filtered, name-deduped exotic pool. A NON-EMPTY pool is exactly equivalent to
+   * "the exotic dimension is open" — `buildSolverEnv` returns null when the dimension is
+   * open but admits nothing, so no separate flag is needed.
+   */
+  exoticPool: Armor[];
+  /** Precomputed loose reachable-union for the undecided exotic (open-slot bound). */
+  exoticReach: BuildElement[];
 }
 
 /** A partial build in the beam. `candidates` are its legal add-one-element moves. */
@@ -62,18 +71,30 @@ export interface SolverState {
   key: string;
   /** Weapons chosen for open slots (pinned slots live in `build`). */
   weapons: WeaponPick[];
+  /** The chosen exotic, when this dimension is open and decided. */
+  exoticHash?: Hash;
 }
 
 /** Order-independent identity for a partial build (dedup + stable tie-break). */
-export function stateKey(fragHashes: Hash[], perkHashes: Hash[], weaponPicks: WeaponPick[] = []): string {
+export function stateKey(
+  fragHashes: Hash[],
+  perkHashes: Hash[],
+  weaponPicks: WeaponPick[] = [],
+  exoticHash?: Hash,
+): string {
   const s = (xs: Hash[]) => [...xs].sort((a, b) => a - b).join(",");
-  const base = `frag:${s(fragHashes)}|perk:${s(perkHashes)}`;
-  if (weaponPicks.length === 0) return base; // SP3a keys unchanged (byte-identical)
-  const wpn = [...weaponPicks]
-    .sort((a, b) => (a.slot < b.slot ? -1 : a.slot > b.slot ? 1 : 0))
-    .map((p) => `${p.slot}=${p.itemHash}[${s(p.plugHashes)}]`)
-    .join(";");
-  return `${base}|wpn:${wpn}`;
+  let key = `frag:${s(fragHashes)}|perk:${s(perkHashes)}`;
+  if (weaponPicks.length > 0) {
+    const wpn = [...weaponPicks]
+      .sort((a, b) => (a.slot < b.slot ? -1 : a.slot > b.slot ? 1 : 0))
+      .map((p) => `${p.slot}=${p.itemHash}[${s(p.plugHashes)}]`)
+      .join(";");
+    key = `${key}|wpn:${wpn}`;
+  }
+  // Both components are appended only when present, so SP3a and slice-1 keys are
+  // byte-identical (no exotic ⇒ no suffix).
+  if (exoticHash !== undefined) key = `${key}|exo:${exoticHash}`;
+  return key;
 }
 
 /**
@@ -118,6 +139,30 @@ export function buildSolverEnv(
   const resolvePlugTags = (plug: { hash: Hash; name: string }) =>
     ctx.lookup.plugTags(plug.hash) ?? ctx.lookup.perkByName(plug.name)?.tags ?? EMPTY_TAGS;
 
+  // Exotic armor. The dimension is OPEN iff the base does not already fix an exotic — in
+  // EITHER armor field, since a build may record its exotic as a piece (see `ArmorLoadout`)
+  // — AND we have either a Guardian class to filter by or a useExotic pin. Checking both
+  // fields is what makes "non-empty pool ⇔ dimension open" true against the whole armor
+  // model: without it, a user who pins an exotic *piece* gets a SECOND exotic chosen here.
+  // (A useExotic pin alongside an exotic piece therefore closes the dimension rather than
+  // producing two exotics; slice 4's infeasibility explanation is where that gets voiced.)
+  let pinnedExotic: Hash | undefined;
+  for (const c of base.constraints) {
+    if (c.kind === "useExotic") pinnedExotic = c.itemHash;
+  }
+  const pieceExotic = base.armor.pieces.some(
+    (p) => p.itemHash !== undefined && ctx.lookup.armor(p.itemHash)?.tier === "exotic",
+  );
+  const classType = base.subclass.classType;
+  let exoticPool: Armor[] = [];
+  if (base.armor.exoticHash === undefined && !pieceExotic
+      && (classType !== undefined || pinnedExotic !== undefined)) {
+    exoticPool = deriveExoticArmorPool(ctx, classType, pinnedExotic);
+    // Pin contradicts the class, or names a hash absent from the dataset. Slice 4 will
+    // explain WHICH; here it is simply infeasible.
+    if (exoticPool.length === 0) return null;
+  }
+
   return {
     ctx,
     lookup: ctx.lookup,
@@ -134,6 +179,8 @@ export function buildSolverEnv(
     weaponPool,
     weaponReach,
     resolvePlugTags,
+    exoticPool,
+    exoticReach: deriveExoticReach(exoticPool),
   };
 }
 
@@ -144,6 +191,7 @@ export function makeState(
   perkHashes: Hash[],
   bound: BoundFn,
   weaponPicks: WeaponPick[] = [],
+  exoticHash?: Hash,
 ): SolverState {
   const frag = [...fragHashes].sort((a, b) => a - b);
   const perk = [...perkHashes].sort((a, b) => a - b);
@@ -165,23 +213,27 @@ export function makeState(
   const build: Build = {
     ...env.base,
     subclass: { ...env.base.subclass, fragmentHashes: frag },
+    // `?? env.base.armor.exoticHash` keeps a base-pinned exotic when this dimension is closed.
+    armor: { ...env.base.armor, exoticHash: exoticHash ?? env.base.armor.exoticHash },
     artifact: { ...env.base.artifact, selectedPerkHashes: perk },
     weapons,
   };
   const cap = evaluateArtifactCapacity(env.capModel, perk);
   const realized = scoreSynergy(build, env.lookup);
-  const candidates = generateCandidates(env, frag, perk, cap, weaponPicks);
-  // Open-slot bound: augment the addable set with each not-yet-picked slot's precomputed
-  // reachable-union (candidates alone under-cover a slot whose weapon isn't chosen yet).
+  const candidates = generateCandidates(env, frag, perk, cap, weaponPicks, exoticHash);
+  // Open-slot bound: augment the addable set with each not-yet-decided dimension's
+  // precomputed reachable-union (candidates alone under-cover a dimension still open).
   const addable = candidates
-    .filter((c) => c.kind !== "weapon") // weapon-selection tags are covered by weaponReach
+    // weapon- and exotic-selection tags are covered by their reach unions below
+    .filter((c) => c.kind !== "weapon" && c.kind !== "exoticArmor")
     .map((c) => c.element);
   for (const slot of env.openWeaponSlots) {
     if (!pickBySlot.has(slot)) addable.push(...(env.weaponReach.get(slot) ?? []));
   }
+  if (exoticHash === undefined && env.exoticPool.length > 0) addable.push(...env.exoticReach);
   const priority = bound(build, addable, env.lookup);
   return { build, fragHashes: frag, perkHashes: perk, cap, realized, candidates, priority,
-    weapons: weaponPicks, key: stateKey(frag, perk, weaponPicks) };
+    weapons: weaponPicks, exoticHash, key: stateKey(frag, perk, weaponPicks, exoticHash) };
 }
 
 /** All successor states — one per legal move from `state`. */
@@ -189,20 +241,22 @@ export function expand(state: SolverState, env: SolverEnv, bound: BoundFn): Solv
   const out: SolverState[] = [];
   for (const c of state.candidates) {
     if (c.kind === "fragment") {
-      out.push(makeState(env, [...state.fragHashes, c.hash], state.perkHashes, bound, state.weapons));
+      out.push(makeState(env, [...state.fragHashes, c.hash], state.perkHashes, bound, state.weapons, state.exoticHash));
     } else if (c.kind === "artifactPerk") {
-      out.push(makeState(env, state.fragHashes, [...state.perkHashes, c.hash], bound, state.weapons));
+      out.push(makeState(env, state.fragHashes, [...state.perkHashes, c.hash], bound, state.weapons, state.exoticHash));
+    } else if (c.kind === "exoticArmor") {
+      out.push(makeState(env, state.fragHashes, state.perkHashes, bound, state.weapons, c.hash));
     } else if (c.kind === "weapon") {
       // Choose a weapon for slot c.slot. Eager ammo prune: skip if it makes the
       // no-double-Primary rule unsatisfiable across all decided weapons.
       const decided = decidedAmmo(env, [...state.weapons, { slot: c.slot!, itemHash: c.hash, plugHashes: [] }]);
       if (nonPowerAmmoInfeasible(decided)) continue;
       out.push(makeState(env, state.fragHashes, state.perkHashes, bound,
-        [...state.weapons, { slot: c.slot!, itemHash: c.hash, plugHashes: [] }]));
+        [...state.weapons, { slot: c.slot!, itemHash: c.hash, plugHashes: [] }], state.exoticHash));
     } else { // weaponPerk
       const nextPicks = state.weapons.map((p) =>
         p.slot === c.slot ? { ...p, plugHashes: [...p.plugHashes, c.hash] } : p);
-      out.push(makeState(env, state.fragHashes, state.perkHashes, bound, nextPicks));
+      out.push(makeState(env, state.fragHashes, state.perkHashes, bound, nextPicks, state.exoticHash));
     }
   }
   return out;
@@ -264,7 +318,15 @@ export function beamSearch(env: SolverEnv, bound: BoundFn): SolverState[] {
         // discarded rather than completed. Confirmed empirically: two open,
         // both-Primary-only slots otherwise leak two single-slot-filled
         // "completions" into `completed` without this guard.
-        if (state.weapons.length === env.openWeaponSlots.length) {
+        // The exotic clause below is DEFENSIVE, and — unlike the weapon guard above — is
+        // unreachable under today's candidate generation: `generateCandidates` emits one
+        // `exoticArmor` candidate per pool entry whenever `exoticHash === undefined`, and
+        // `expand` never `continue`s on that kind, so an exotic-undecided state always has
+        // a move and can never be terminal. It is kept because it is correct and cheap, and
+        // it stops being dead the moment a future slice adds a dimension whose moves can be
+        // pruned away (as the ammo prune does for weapons).
+        if (state.weapons.length === env.openWeaponSlots.length
+            && (state.exoticHash !== undefined || env.exoticPool.length === 0)) {
           completed.push(state);
         }
         continue;
