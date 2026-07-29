@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — on `main`, tree clean, 0 unpushed, 385/385 green; last code commit `670a2ed`. Step 1 ✅ and step 2's pool/reach helpers ✅. NEXT: wire the mod dimension into the beam (spec below) and measure its cost immediately.**
+**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 397/397 green; last code commit `e2a3de5`. NEXT is a DECISION, not code: mods cost 11.73x / 15s, so enabling them by default needs either the tagged-pool lever (5.58x, measured) or further optimisation. See below.**
 
 | Unit | Status |
 | --- | --- |
@@ -20,7 +20,7 @@
 | Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `385/385 passing, 49 files, 0 failing`.** Run:
+**Test baseline: `397/397 passing, 51 files, 0 failing`.** Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -70,87 +70,47 @@ enumerates the dataset. Measured per slot: 59 helmet / 54 arms / 54 chest / 56 l
 plus 21 general shared; 145 of 451 mods carry synergy tags. Pool tests bound BOTH sides
 (≥40, <120) so over-inclusion fails too; mutation-proven.
 
-### Step 2b — WIRE the mod dimension into the beam (the remaining work)
+### Step 2b — mod beam dimension ✅ DONE, OPT-IN (`e2a3de5`)
 
-Wire it, then **measure real-data cost immediately** — slice 2b's proven task order, and this is
-the widest dimension yet: 5 slots × 4 sockets over 512 mods, against aspects (≤5) and exotics (47).
+Wired behind `SolveOptions.chooseMods` (default **false**). `Selection.mods: ModPick[]` carries
+slot-qualified picks (a general mod fits any slot's general socket, so the slot is part of the
+decision), `|mod:` appended only when non-empty, per-slot modelling against the canonical layout,
+feasibility via `canAddMod`.
 
-- **Model mods PER SLOT** using `canonicalModCapacityModel(slot)` — exact for Armor 3.0, not an
-  approximation (990/999 pieces; all 9 exceptions are already-out-of-scope exotic families). This
-  is what lets mods work without the solver choosing pieces.
-- Feasibility/pruning through `evaluateModCapacity` / `canAddMod`; pool/reach via
-  `deriveModPool` / `deriveModReach` (both ✅ already built and tested).
-- `Selection.modHashes` + a `mod` candidate kind, appended to `stateKey` only when non-empty so
-  closed-dimension keys stay byte-identical (the `|wpn:`/`|exo:`/`|asp:` rule).
-- `Build.armor.modHashes` is the field to write; note it is a FLAT list, so the per-slot
-  assignment is the solver's internal concern rather than something the Build records.
+**⏭️ THE NEXT DECISION — enabling mods by default. This is a product call, not a coding task.**
+Measured immediately after wiring (arc warlock, beamWidth 8):
 
-**⚠️ UNDERFILL IS LEGAL HERE, unlike every dimension so far.** Four sockets exist but four mods at
-3 energy is 12 > 11, so a full mod set is often infeasible — the energy budget binds before the
-sockets do (pinned by a test). This is the situation SP3a warned about. **Terminal-only routing
-still works**, because "no addable mod" IS a terminal state: the beam yields **maximal** rather
-than **full** mod sets, and since a mod never has a downside, maximal is optimal. Do not add
-best-partial tracking; do add a clause to `dimensionsAllDecided` only if a prune can remove mod
-moves the way the ammo prune does for weapons.
+| `chooseMods` | bound calls | wall clock | mods placed | marginal |
+| --- | --- | --- | --- | --- |
+| false | 6,643 | 214 ms | 0 | — |
+| true | 77,901 | 15,171 ms | 20 | **11.73x** |
+| true, **tagged-only pool** | 37,067 | 4,681 ms | 20 | **5.58x** |
 
-**The gate this dimension needs:** ask single-stage vs staged first. Mods look **single-stage**
-(choosing a mod decides it outright), so the reach term needs an **admissibility property test**,
-not an outcome gate — mirror `tests/solver/beam-aspects.test.ts`'s bottom describe block, and watch
-the `Math.max(...[])` = `-Infinity` vacuity trap.
+(Aspects are 1.21x and exotics 2.72x for comparison.) 15 seconds is too slow for interactive use.
 
-**Done when:** every completed build's mods pass `evaluateModCapacity` per slot; the validator
-still accepts every emitted build; the weapons tripwire is still **exactly 10,527**; the
-admissibility property test is mutation-proven; and the measured marginal cost is recorded in the
-test with a re-measure recipe.
+**The tagged-only lever is measured and ready but NOT applied, because it changes behaviour:**
+untagged mods are interchangeable as far as the synergy objective is concerned, so offering all 306
+of them is pure branching waste — but excluding them means the solver prescribes only the
+synergy-relevant mods and leaves the remaining sockets to the player. That happens to match the
+global-prescription approach already chosen for armour, which is an argument for it. Apply it in
+`deriveModPool` (one `.filter((m) => tagSize(m) > 0)`) and re-pin
+`MOD_BOUND_CALL_CEILING` + the table above if the call goes that way.
 
-### ✅ Aspect dimension SHIPPED — and the bug its mutation pass found
+**⚠️ TWO BUGS FOUND HERE BY MUTATIONS THAT FAILED TO APPLY — the lesson generalises.** Both were
+caught only because the grep-confirm showed the mutation had not landed, so the accompanying green
+was meaningless. (1) The `modReach` bound push was silently never added by an earlier edit, leaving
+mod candidates filtered out of `addable` with nothing replacing them — the bound ignored mods and
+under-estimated every mod-undecided state. (2) The first admissibility gate was written against REAL
+data and was VACUOUS: it passed with the reach term deleted, because the other dimensions' reach
+already dominates any single mod. It was replaced with a synthetic fixture
+(`tests/solver/beam-mods.test.ts`) where the only producer of the pinned fragment's consumed keyword
+is a MOD, and that version does redden. **Prefer a synthetic fixture for any admissibility gate —
+real data tends to make them pass for the wrong reason.**
 
-The beam now chooses aspects (`7eedef4`), with the fragment cap recomputed per state from
-pinned + chosen aspects. Measured **1.21x** marginal bound-call cost on real data (8,049 open
-vs 6,643 closed) — cheap, because the pool is 4–5 per (class, element) against 47 exotics.
-The weapons tripwire is still **exactly 10,527**, proving the dimension is additive.
-
-> **⚠️ READ THIS BEFORE ADDING ANOTHER DIMENSION.** `Selection` carries only the solver's OWN
-> picks, so every cap comparison must add `env.pinnedAspects` back in. All three comparisons
-> originally counted solver picks alone against `ASPECT_CAP`, so a build with ONE pinned aspect
-> got two more added — a 3-aspect illegal build. It surfaced only because deleting the aspect
-> clause from `dimensionsAllDecided` reddened **nothing**: the vacuous mutation was the
-> symptom, and the accounting bug was the finding. **When a mutation proves vacuous, ask what
-> the tests aren't covering before concluding the code is merely defensive.**
-
-Both remaining terminal clauses (exotic, aspect) are now honestly documented as defensive and
-unreachable today, rather than claimed load-bearing.
-
-### ⏭️ NEXT — pick one; both are unblocked, and the artifact one needs a scope decision
-
-### ⚠️ OPEN DESIGN FORK — mods need pieces, and the solver never chooses pieces
-
-Surfaced while building the oracle; **resolve this before starting the mod solver dimension.**
-
-Mods are worn ON armour pieces, and the oracle is correctly per-piece. But the solver writes only
-`armor.exoticHash` and **never writes `armor.pieces`** (slice-2b decision: picking the other four
-is SP4's job). So a mod dimension has no pieces to attach mods to.
-
-Measured, which makes one option viable: the mod-socket layout is **near-uniform per slot**. The
-dominant layout for every slot is **1 masterwork + 1 general + 3 slot-specific** (471-507 pieces
-per slot), though there is a long tail (23-32 distinct layouts per slot, including ~100 pieces per
-slot carrying only two sockets). So a canonical per-slot layout is a defensible approximation, but
-it is an APPROXIMATION and would over-state capacity for the tail.
-
-Three ways forward, in rough order of honesty:
-1. **Defer the mod dimension until SP4 fills `pieces`.** Cleanest and no approximation, but it
-   makes mods depend on the largest remaining sub-project.
-2. **Model mods per SLOT against the canonical Armor-3.0 layout**, and re-validate exactly once
-   pieces exist. Ships value now; must be labelled as assuming a canonical layout, or it will be
-   read as exact. Pairs naturally with the prescription approach — prescribing "a legs piece with
-   3 legs-mod sockets" is the same kind of claim as prescribing a stat roll.
-3. **Have the solver choose pieces too.** Rejected already for stat reasons in slice 2b (non-exotic
-   armour is 2.17% tagged) and it duplicates SP4.
-
-Given decision (3) in the architecture section — prescription rather than piece search — **option 2
-is the natural fit**, because prescribing a socket layout is the same shape of claim as prescribing
-a stat distribution. But it is a real modelling choice with a user-visible consequence, so it is
-recorded here rather than assumed.
+**`dimensionsAllDecided` has NO mod clause, and that is correct.** Every other dimension is
+fill-to-cap, but four sockets at 3 energy is 12 > 11, so the energy budget binds first and underfill
+is legal. A state that can add no further mod is MAXIMAL, not incomplete; a mod never has a
+downside, so maximal is optimal and terminal-only routing holds without best-partial tracking.
 
 ### 🏛️ ARMOUR ARCHITECTURE — decided 2026-07-29 (user). Read before SP4 or any armour work.
 
