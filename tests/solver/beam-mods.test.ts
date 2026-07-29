@@ -51,6 +51,7 @@ const modProducer: Mod = {
   kind: "mod", hash: 700, name: "ModProd", icon: "", energyCost: 1,
   plugCategory: "enhancements.v2_head", tags: tag({ produces: ["jolt"] }),
 } as Mod;
+/** Untagged, so the tagged-only pool must EXCLUDE it — asserted below. */
 const modInert: Mod = {
   kind: "mod", hash: 701, name: "ModInert", icon: "", energyCost: 1,
   plugCategory: "enhancements.v2_head", tags: EMPTY_TAGS,
@@ -119,9 +120,11 @@ describe("buildSolverEnv — the mod dimension is opt-in", () => {
     expect(env.modPool).toBeUndefined();
   });
 
-  it("OPENS with chooseMods", () => {
+  it("OPENS with chooseMods, and the pool is tagged-only", () => {
     const env = buildSolverEnv(base(), ctxFor(), { chooseMods: true })!;
-    expect(env.modPool?.get("helmet")?.map((m) => m.hash)).toEqual([700, 701]);
+    // 701 is untagged, so it is excluded: untagged mods are interchangeable to the synergy
+    // objective and only multiply branching. 700 produces "jolt" and is kept.
+    expect(env.modPool?.get("helmet")?.map((m) => m.hash)).toEqual([700]);
   });
 });
 

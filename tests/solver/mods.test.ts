@@ -20,9 +20,19 @@ const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.jso
  * category list, so it cannot drift out of step with the layout the capacity oracle enforces.
  */
 
+/**
+ * A TAGGED mod. Tags are load-bearing, not decoration: `deriveModPool` is restricted to tagged
+ * mods, so an untagged fixture is excluded and the pool comes back empty.
+ */
 const mod = (hash: number, plugCategory: string, over: Partial<Mod> = {}): Mod => ({
   kind: "mod", hash, name: `Mod${hash}`, icon: "", energyCost: 1,
-  plugCategory, tags: EMPTY_TAGS, ...over,
+  plugCategory, tags: { produces: [`kw${hash}`], consumes: [], triggers: [] }, ...over,
+} as Mod);
+
+/** An UNTAGGED mod, for asserting the pool excludes it. */
+const untagged = (hash: number, plugCategory: string): Mod => ({
+  kind: "mod", hash, name: `Untagged${hash}`, icon: "", energyCost: 1,
+  plugCategory, tags: EMPTY_TAGS,
 } as Mod);
 
 function ctxWith(mods: Mod[]): SolverContext {
@@ -75,9 +85,12 @@ describe("deriveModPool", () => {
     expect(new Set(pool.map((m) => m.hash)).size).toBe(pool.length);
   });
 
-  it("keeps untagged mods — they still occupy a socket and spend energy", () => {
-    const ctx = ctxWith([mod(1, "enhancements.v2_head", { tags: EMPTY_TAGS })]);
-    expect(deriveModPool(ctx, "helmet")).toHaveLength(1);
+  it("EXCLUDES untagged mods — they cannot change the synergy objective", () => {
+    // Untagged mods are mutually interchangeable to `scoreSynergy`, so offering all 306 of them
+    // multiplies branching without ever changing the result. Measured: restricting to the 145
+    // tagged mods halves the dimension's cost and still fills all 20 sockets.
+    const ctx = ctxWith([mod(1, "enhancements.v2_head"), untagged(2, "enhancements.v2_head")]);
+    expect(deriveModPool(ctx, "helmet").map((m) => m.hash)).toEqual([1]);
   });
 });
 
@@ -86,9 +99,22 @@ describe("deriveModReach", () => {
     const tagged = mod(1, "enhancements.v2_head", {
       tags: { produces: ["jolt"], consumes: [], triggers: [] },
     });
-    const reach = deriveModReach([tagged, mod(2, "enhancements.v2_head")]);
+    const reach = deriveModReach([tagged, untagged(2, "enhancements.v2_head")]);
     expect(reach.map((e) => e.hash)).toEqual([1]);
     expect(reach[0].tags.produces).toEqual(["jolt"]);
+  });
+
+  it("keeps ONE representative per tag signature", () => {
+    // The bound reads only tags, so two mods with identical produces/consumes/triggers are
+    // indistinguishable to it — the same synergy-EFFECT granularity rule slice 2a established for
+    // weapon plugs, where per-item keying cost 6x. Lowest hash wins, for determinism.
+    const sig = { produces: ["jolt"], consumes: [], triggers: [] };
+    const reach = deriveModReach([
+      mod(5, "enhancements.v2_head", { tags: sig }),
+      mod(3, "enhancements.v2_head", { tags: sig }),
+      mod(4, "enhancements.v2_head", { tags: { produces: ["scorch"], consumes: [], triggers: [] } }),
+    ]);
+    expect(reach.map((e) => e.hash)).toEqual([3, 4]);
   });
 
   it("does not count championStuns as tag richness", () => {
@@ -112,10 +138,12 @@ describe.runIf(hasDataset)("deriveModPool — real data", () => {
     // MEASURED (451 mods after inert entries were excluded at ingest): 59 helmet, 54 arms,
     // 54 chest, 56 legs, 29 class slot-restricted, plus 21 general shared by every slot.
     for (const slot of ["helmet", "arms", "chest", "legs", "class"] as const) {
+      // MEASURED per slot after the tagged-only restriction (145 tagged of 451):
+      //   helmet 37, arms 27, legs 26, class 26, chest 10 — each including the shared general mods.
       const pool = deriveModPool(ctx, slot);
-      expect(pool.length, `${slot} pool`).toBeGreaterThanOrEqual(40);
-      // Anti-over-inclusion: a slot must NOT see the whole 451-mod table.
-      expect(pool.length, `${slot} pool`).toBeLessThan(120);
+      expect(pool.length, `${slot} pool`).toBeGreaterThanOrEqual(8);
+      // Anti-over-inclusion: a slot must NOT see the whole 451-mod table, nor all 145 tagged.
+      expect(pool.length, `${slot} pool`).toBeLessThan(60);
     }
   });
 
@@ -133,12 +161,16 @@ describe.runIf(hasDataset)("deriveModPool — real data", () => {
     }
   });
 
-  it("has a tagged subset worth bounding over, but not all of it", () => {
-    // 145 of 451 mods carry synergy tags. The reach must be a strict, non-empty subset — empty
-    // would make the bound term inert, and equal would mean tag filtering is not happening.
-    const pool = deriveModPool(ctx, "helmet");
-    const reach = deriveModReach(pool);
-    expect(reach.length).toBeGreaterThan(0);
-    expect(reach.length).toBeLessThan(pool.length);
+  it("collapses the reach to distinct tag signatures, far below the pool size", () => {
+    // MEASURED: reach is 6 (helmet), 5 (arms), 3 (chest), 7 (legs), 11 (class) against pools of
+    // 37/27/10/26/26 — because the bound reads only tags, so duplicate signatures add nothing.
+    // Across 5 slots that is 32 elements pushed into `addable` instead of 126.
+    for (const slot of ["helmet", "arms", "chest", "legs", "class"] as const) {
+      const pool = deriveModPool(ctx, slot);
+      const reach = deriveModReach(pool);
+      expect(reach.length, `${slot} reach`).toBeGreaterThan(0);
+      expect(reach.length, `${slot} reach`).toBeLessThan(pool.length);
+      expect(reach.length, `${slot} reach`).toBeLessThanOrEqual(15);
+    }
   });
 });

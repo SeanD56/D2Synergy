@@ -21,30 +21,32 @@ const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.jso
  * ⚠️ MEASURED COST, and it is why this dimension is opt-in rather than on by default. Arc warlock,
  * beamWidth 8, manifest 244213.26.06.29.2000-1-bnet.65583:
  *
- *   chooseMods: false -> 6,643 bound calls,    214 ms,  0 mods placed
- *   chooseMods: true  -> 77,901 bound calls, 15,171 ms, 20 mods placed   => 11.73x marginal
+ *   chooseMods: false -> 6,643 bound calls,   216 ms,  0 mods, top score 33.5
+ *   chooseMods: true  -> 35,663 bound calls, 4,425 ms, 20 mods, top score 62.5  => 5.37x marginal
  *
- * For comparison the aspect dimension is 1.21x and the exotic dimension 2.72x. This one is an
- * order of magnitude worse because it is both the WIDEST (~50-80 mods per slot across 5 slots)
- * and the DEEPEST (up to 20 moves, one per socket) dimension in the solver.
+ * For comparison the aspect dimension is 1.21x and the exotic dimension 2.72x. Mods are worth
+ * having — the top score nearly doubles — but 4.4s is still too slow to run unasked.
  *
- * The admissibility gate for `modReach` lives in `tests/solver/beam-mods.test.ts` — it needs a
- * synthetic fixture, because on real data the bound is already high enough from the other
- * dimensions' reach to dominate any single mod by accident (measured: a real-data version of that
- * gate passed even with the reach term deleted, i.e. it was vacuous).
+ * TWO OPTIMISATIONS ARE ALREADY APPLIED, and their relative effect is the useful diagnostic:
+ *   1. Tagged-only pool (145 of 451 mods): 11.73x -> 5.58x, 15.2s -> 4.7s. Untagged mods are
+ *      mutually interchangeable to `scoreSynergy`, so offering them multiplied branching without
+ *      ever changing the objective. Still fills all 20 sockets.
+ *   2. Reach deduped by TAG SIGNATURE (slice 2a's synergy-effect-granularity rule): per-slot reach
+ *      collapses from 37/27/10/26/26 to 6/5/3/7/11, i.e. 32 elements pushed instead of 126.
+ *      Effect: 5.58x -> 5.37x.
  *
- * MEASURED LEVER, not yet applied because it is a product decision: restricting the pool to the
- * 145 tagged mods (of 451) gives 37,067 calls / 4,681 ms / 5.58x and still fills all 20 sockets.
- * Untagged mods are interchangeable as far as the synergy objective is concerned, so offering all
- * 306 of them is pure branching waste — but excluding them means the solver PRESCRIBES only the
- * synergy-relevant mods and leaves the rest to the player, which is a deliberate behaviour change
- * (and one that happens to match the global-prescription approach chosen for armour).
+ * ⚠️ THE DIAGNOSIS: optimisation 2 cut `addable` by 4x and bought only ~4%, so this dimension's
+ * cost is **DEPTH-driven, not width-driven** — it adds up to 20 extra beam levels (one per socket),
+ * and each level re-expands the whole beam. Further pool or reach narrowing will NOT help
+ * materially. Making mods affordable by default needs a structurally different approach: choose a
+ * slot's mods as ONE move rather than four, or run a greedy mod pass after the beam terminates
+ * instead of inside it. Do not keep shaving the pool and expect a win.
  */
 
-// Ceiling for the dimension as it stands: ~1.5x the measured 77,901 for drift headroom. This is a
-// TRIPWIRE, not a target — if the pool is ever narrowed, RE-MEASURE and re-pin rather than leaving
-// a ceiling that no longer constrains anything.
-const MOD_BOUND_CALL_CEILING = 120_000;
+// ~1.5x the measured 35,663, for drift headroom. A TRIPWIRE, not a target: it was re-pinned down
+// from 120,000 when the two optimisations landed, because a ceiling left at the old value would no
+// longer constrain anything. Re-measure and re-pin on any further pool change.
+const MOD_BOUND_CALL_CEILING = 55_000;
 
 describe.runIf(hasDataset)("solve — mod dimension (real data, opt-in)", () => {
   let ds: DerivedDataset;
