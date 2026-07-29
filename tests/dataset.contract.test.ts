@@ -26,7 +26,12 @@ const hasDataset = existsSync(path.join(process.cwd(), "data", "dataset-meta.jso
 // (manifest 244213.26.06.29.2000-1-bnet.65583). Measured values in brackets.
 const FLOOR_EXOTIC_TAG_RATIO = 0.65; // [measured 0.761 — 265/348]
 const FLOOR_EXOTIC_PERK_HASH_RATIO = 0.9; // [measured 0.974 — 339/348]
-const FLOOR_MODS_WITH_SLOT = 280; // ~55% of 512 [measured 316]
+// Re-pinned after inert mod plugs were excluded at ingest: the mod population fell 512 -> 451
+// (64 placeholder/no-effect entries removed), so the absolute count of slot-restricted mods fell
+// 316 -> 279 while the RATIO rose (316/512 = 62% -> 279/451 = 62%, essentially unchanged — the
+// removed entries were spread across both groups). A floor breach means extraction broke, not
+// that the game changed.
+const FLOOR_MODS_WITH_SLOT = 250; // ~62% of 451 [measured 279]
 const FLOOR_TAGGED_PLUGS = 200; // [measured 280]
 const FLOOR_CHAMPION_ENTITIES = 120; // [measured 188]
 
@@ -215,6 +220,15 @@ describe.runIf(hasDataset)("dataset contract — subclass plug coverage", () => 
       expect(ds.aspects.filter((a) => a.classType === classType).length)
         .toBeGreaterThanOrEqual(20);
     }
+  });
+
+  it("excludes inert placeholder plugs from MODS too", () => {
+    // Extends the aspect/fragment guarantee to mods, once the discriminator was measured against
+    // that population. Without this the solver could "choose" an Empty Mod Socket.
+    const inertNamed = ds.mods.filter((m) => /^(Empty .* Socket|Locked .*)$/.test(m.name));
+    expect(inertNamed).toEqual([]);
+    expect(ds.mods.filter((m) => !m.name)).toEqual([]); // no nameless stubs either
+    expect(ds.mods.length).toBeGreaterThanOrEqual(400); // [measured 451] — anti-over-exclusion
   });
 
   it("excludes placeholder Empty-Socket plugs from aspects and fragments", () => {
