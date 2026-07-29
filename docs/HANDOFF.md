@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — on `main`, tree clean, 0 unpushed, 371/371 green; last code commit `28d14d8` (this doc is the commit after it). NEXT: the mod ingest fix, then the beam dimension, in that order (spec below).**
+**SP3b · slice 2c (mods) — on `main`, tree clean, 0 unpushed, 374/374 green; last code commit `5c913e5`. Step 1 (mod placeholder exclusion) is ✅ DONE. NEXT: step 2, the mod beam dimension (spec below).**
 
 | Unit | Status |
 | --- | --- |
@@ -20,7 +20,7 @@
 | Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `371/371 passing, 48 files, 0 failing`.** Run:
+**Test baseline: `374/374 passing, 48 files, 0 failing`.** Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -47,22 +47,19 @@ spec/plan pair for it, because the measurements that shape it live here. For ear
 **Ordering is DECIDED (user, 2026-07-29): Armor 3.0 restriction ✅ done → mod ingest fix → beam
 dimension, measuring cost immediately after wiring.**
 
-### Step 1 — mod placeholder exclusion, at ingest, inside this slice
+### Step 1 — mod placeholder exclusion ✅ DONE (`5c913e5`)
 
-`data/mods.json` still contains `Empty Mod Socket` entries. Without this the solver will "choose"
-an empty socket — the exact bug the aspect/fragment repair fixed. Placeholder exclusion was
-deliberately SCOPED to aspects/fragments because the mod population was unmeasured, and a test in
-`tests/ingest/plug-kind.test.ts` pins that scope, so it will redden when you widen it — that is
-intended, update it.
+**The aspect/fragment discriminator did NOT transfer — which is exactly why it was scoped narrowly
+and measured before widening.** Empty `itemTypeDisplayName` would have wrongly KEPT 52 of 53 mod
+placeholders (they carry real-looking type names like `"Helmet Armor Mod"`) while dropping 10 real
+mods. `description` is not a discriminator anywhere and is inverted for aspects/fragments.
 
-**Measure the discriminator for mods FIRST** (do not assume the aspect/fragment one transfers):
-for aspects/fragments it was an empty `itemTypeDisplayName`, with `description` being *inverted*
-and useless. Re-run that comparison over the mod population before choosing.
-
-**Done when:** a real-data contract floor asserts zero `/^Empty .* Socket$/` entries in
-`ds.mods`, the discriminator is mutation-proven, and the re-ingest is confirmed zero-churn by
-byte-comparing every other `data/*.json` against a backup (the manifest version is still
-`244213.26.06.29.2000-1-bnet.65583`, so churn should be nil).
+The rule is now **structural and unified across all plug families**: a plug with neither
+`investmentStats` nor `perks` can do nothing. Exact on both populations. It also caught 11 further
+inert entries (5 Ghost mod SOCKETS, 3 nameless, the `Upgrade to Artifice Armor` action, 2
+do-nothing `Solar Ordnance Mod` stubs). **Mods 512 → 451**, zero churn elsewhere, tripwire still
+10,527. Mutation-proven; contract floor added; `FLOOR_MODS_WITH_SLOT` re-pinned 280 → 250 with the
+reason recorded (count 316 → 279, ratio held at ~62%).
 
 ### Step 2 — the mod beam dimension
 
