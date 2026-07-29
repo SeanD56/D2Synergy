@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 397/397 green; last code commit `e2a3de5`. NEXT is a DECISION, not code: mods cost 11.73x / 15s, so enabling them by default needs either the tagged-pool lever (5.58x, measured) or further optimisation. See below.**
+**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 398/398 green. Slice 2c is COMPLETE and optimised (11.73x -> 5.37x). NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
 
 | Unit | Status |
 | --- | --- |
@@ -20,7 +20,7 @@
 | Set bonuses · SP4 stat optimizer · UI | ⏸️ parked, see Future |
 | ~~Solver-chosen artifact~~ | ❌ **DROPPED** from scope (decision below) |
 
-**Test baseline: `397/397 passing, 51 files, 0 failing`.** Run:
+**Test baseline: `398/398 passing, 51 files, 0 failing`.** Run:
 `npx vitest run && npx tsc --noEmit && npx eslint scripts src tests`
 Anything less is a regression — this session ended fully green with **nothing in flight** and an
 empty working tree.
@@ -88,13 +88,16 @@ Measured immediately after wiring (arc warlock, beamWidth 8):
 
 (Aspects are 1.21x and exotics 2.72x for comparison.) 15 seconds is too slow for interactive use.
 
-**The tagged-only lever is measured and ready but NOT applied, because it changes behaviour:**
-untagged mods are interchangeable as far as the synergy objective is concerned, so offering all 306
-of them is pure branching waste — but excluding them means the solver prescribes only the
-synergy-relevant mods and leaves the remaining sockets to the player. That happens to match the
-global-prescription approach already chosen for armour, which is an argument for it. Apply it in
-`deriveModPool` (one `.filter((m) => tagSize(m) > 0)`) and re-pin
-`MOD_BOUND_CALL_CEILING` + the table above if the call goes that way.
+**✅ BOTH LEVERS APPLIED — and the diagnosis matters more than the win.** Tagged-only pool
+(11.73x → 5.58x) plus reach deduped by tag signature (→ 5.37x; per-slot reach 37/27/10/26/26 →
+6/5/3/7/11, so 32 elements pushed instead of 126). Top score 33.5 → 62.5, so mods are clearly worth
+having.
+
+**⚠️ Optimisation 2 cut `addable` by 4x and bought only ~4%. The cost is DEPTH-driven, not
+width-driven** — up to 20 extra beam levels, one per socket, each re-expanding the whole beam.
+**Further pool or reach narrowing will NOT help.** Enabling mods by default needs a structural
+change: select a slot's mods as ONE move instead of four, or run a greedy mod pass after the beam
+terminates rather than inside it. Do not spend another round shaving the pool.
 
 **⚠️ TWO BUGS FOUND HERE BY MUTATIONS THAT FAILED TO APPLY — the lesson generalises.** Both were
 caught only because the grep-confirm showed the mutation had not landed, so the accompanying green
