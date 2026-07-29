@@ -83,13 +83,13 @@ const build = (
 
 describe("stateKey — exotic component", () => {
   it("is byte-identical to slice 1 when no exotic is given", () => {
-    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], aspectHashes: [] })).toBe("frag:1,2|perk:3");
-    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], aspectHashes: [], exoticHash: undefined }))
+    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], aspectHashes: [], mods: [] })).toBe("frag:1,2|perk:3");
+    expect(stateKey({ fragHashes: [1, 2], perkHashes: [3], weapons: [], aspectHashes: [], mods: [], exoticHash: undefined }))
       .toBe("frag:1,2|perk:3");
   });
 
   it("appends the exotic when present", () => {
-    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], aspectHashes: [], exoticHash: 55 }))
+    expect(stateKey({ fragHashes: [1], perkHashes: [2], weapons: [], aspectHashes: [], mods: [], exoticHash: 55 }))
       .toBe("frag:1|perk:2|exo:55");
   });
 });
@@ -233,7 +233,7 @@ describe("beamSearch — exotic terminal behaviour", () => {
     )!;
 
     const parent = makeState(
-      env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [], exoticHash: 10 },
+      env, { fragHashes: [], perkHashes: [], weapons: [], aspectHashes: [], mods: [], exoticHash: 10 },
       synergyUpperBound,
     );
     // The exotic is already decided, so the only legal move left is the fragment — no
@@ -275,7 +275,7 @@ describe("beam bound — exotic reach wiring", () => {
     const rootOf = (e: typeof envTagged) => makeState(e, {
       fragHashes: e.base.subclass.fragmentHashes,
       perkHashes: e.base.artifact.selectedPerkHashes,
-      weapons: [], aspectHashes: [],
+      weapons: [], aspectHashes: [], mods: [],
     }, synergyUpperBound);
     const rootTagged = rootOf(envTagged);
     const rootUntagged = rootOf(envUntagged);
@@ -354,7 +354,7 @@ describe("expand() — exotic forwarding across the remaining three branches", (
     const parent = makeState(env, {
       fragHashes: [], perkHashes: [],
       weapons: [{ slot: "kinetic", itemHash: 500, plugHashes: [] }],
-      aspectHashes: [],
+      aspectHashes: [], mods: [],
       exoticHash: 10,
     }, synergyUpperBound);
 
