@@ -12,6 +12,7 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 
 import type {
+  ArmorArchetype,
   Armor,
   ArmorSet,
   Artifact,
@@ -53,6 +54,8 @@ export const loadFragments = () => loadJson<Fragment[]>("fragments.json");
 export const loadWeapons = () => loadJson<Weapon[]>("weapons.json");
 export const loadArmor = () => loadJson<Armor[]>("armor.json");
 export const loadArmorSets = () => loadJson<ArmorSet[]>("armor-sets.json");
+export const loadArmorArchetypes = () =>
+  loadJson<ArmorArchetype[]>("armor-archetypes.json");
 export const loadMods = () => loadJson<Mod[]>("mods.json");
 export const loadArtifacts = () => loadJson<Artifact[]>("artifacts.json");
 export const loadPerks = () => loadJson<Perk[]>("perks.json");
@@ -73,6 +76,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     weapons,
     armor,
     armorSets,
+    armorArchetypes,
     mods,
     artifacts,
     perks,
@@ -88,6 +92,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     loadWeapons(),
     loadArmor(),
     loadArmorSets(),
+    loadArmorArchetypes(),
     loadMods(),
     loadArtifacts(),
     loadPerks(),
@@ -105,6 +110,7 @@ export async function loadDataset(): Promise<DerivedDataset> {
     weapons,
     armor,
     armorSets,
+    armorArchetypes,
     mods,
     artifacts,
     perks,

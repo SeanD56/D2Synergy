@@ -13,6 +13,7 @@ import type {
   WeaponSlot,
 } from "./common";
 import type {
+  ArmorArchetype,
   Armor,
   ArmorSet,
   Artifact,
@@ -77,6 +78,8 @@ export interface DerivedDataset {
   weapons: Weapon[];
   armor: Armor[];
   armorSets: ArmorSet[];
+  /** Armor 3.0 archetypes — the (primary, secondary) stat pairing (see `ArmorArchetype`). */
+  armorArchetypes: ArmorArchetype[];
   mods: Mod[];
   artifacts: Artifact[];
   perks: Perk[];

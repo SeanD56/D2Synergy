@@ -347,3 +347,64 @@ describe.runIf(hasDataset)("dataset contract — current seasonal artifact", () 
     expect(ds.artifacts.length).toBeGreaterThan(1); // anti-vacuity: there must be others to exclude
   });
 });
+
+/**
+ * Armor 3.0 ARCHETYPE coverage — the SP4 / stat-prescription prerequisite.
+ *
+ * An archetype fixes which stats a piece rolls high in, which is what makes stat prescription
+ * tractable: a profile is (archetype, tertiary stat, tertiary value) — 12 x 4 x 2 = 96 per slot —
+ * rather than a free choice of 3 stats from 6, which would be 240.
+ *
+ * ⚠️ Extracted from DESCRIPTION TEXT because the pairing is nowhere else. Measured: all 12 archetype
+ * plugs carry ZERO investmentStats, and every Armor 3.0 item's 4 investmentStats are all value 0
+ * (3,996 of 3,996) because the actual roll is INSTANCE data. So these floors guard a text parse,
+ * which is exactly the fragile kind — season text drift must fail loudly.
+ */
+describe.runIf(hasDataset)("dataset contract — Armor 3.0 archetypes", () => {
+  let ds: DerivedDataset;
+  beforeAll(async () => { ds = await loadDataset(); });
+
+  const STATS = ["health", "melee", "grenade", "super", "class", "weapons"] as const;
+
+  it("emits all 12 measured archetypes", () => {
+    expect(ds.armorArchetypes).toHaveLength(12); // [measured 12]
+  });
+
+  it("gives every archetype a resolved primary AND secondary stat", () => {
+    // A half-parsed archetype would silently mis-describe what a piece rolls, so the extractor
+    // omits those — meaning a shortfall here IS the failure signal.
+    for (const a of ds.armorArchetypes) {
+      expect(STATS, `${a.name} primary`).toContain(a.primaryStat);
+      expect(STATS, `${a.name} secondary`).toContain(a.secondaryStat);
+      expect(a.primaryStat, `${a.name} must not pair a stat with itself`).not.toBe(a.secondaryStat);
+      expect(a.name.length, "archetype must be named").toBeGreaterThan(0);
+    }
+  });
+
+  it("pairs are DISTINCT — the property that makes the archetype informative", () => {
+    // If two archetypes shared a pairing, one would be redundant for prescription purposes.
+    const pairs = ds.armorArchetypes.map((a) => `${a.primaryStat}>${a.secondaryStat}`);
+    expect(new Set(pairs).size).toBe(pairs.length);
+  });
+
+  it("covers all six armour stats as a primary", () => {
+    // Anti-vacuity for the whole set: a parse that collapsed everything onto one stat would still
+    // satisfy the count and distinctness checks above.
+    const primaries = new Set(ds.armorArchetypes.map((a) => a.primaryStat));
+    expect([...primaries].sort()).toEqual([...STATS].sort());
+  });
+
+  it("names the specific archetypes measured, so a rename fails loudly", () => {
+    const byName = new Map(ds.armorArchetypes.map((a) => [a.name, a]));
+    for (const [name, primary, secondary] of [
+      ["Bulwark", "health", "class"],
+      ["Gunner", "weapons", "grenade"],
+      ["Paragon", "super", "melee"],
+    ] as const) {
+      const a = byName.get(name);
+      expect(a, `${name} must be present`).toBeDefined();
+      expect(a!.primaryStat).toBe(primary);
+      expect(a!.secondaryStat).toBe(secondary);
+    }
+  });
+});
