@@ -4,7 +4,7 @@
 
 ## Where we are
 
-**SP3b · slice 2c (mods) — COMPLETE but OPT-IN. On `main`, tree clean, 0 unpushed, 419/419 green. Slice 2c COMPLETE + optimised; current-artifact RESOLVED; archetype question ANSWERED; **first UI slice SHIPPED**. Remaining solver paths all need a product decision — see Future/parked. NEXT: either enable mods by default via a STRUCTURAL change (per-slot batching or a post-beam greedy pass — pool tuning is exhausted, see the diagnosis), or move to the parked items / UI.**
+**UI + set bonuses — on `main` @ `60b7366`, tree clean, 0 unpushed, 419/419 green. NEXT: resolve entity HASHES to NAMES in the recommender page (Task 1 below), then the set-bonus dimension behind a new `targeted` field (Task 2).**
 
 | Unit | Status |
 | --- | --- |
@@ -42,10 +42,69 @@ spec/plan pair for it, because the measurements that shape it live here. For ear
 - Architecture "why": `docs/designs/2026-07-22-d2synergy-buildcrafting-design.md`
 - Full per-slice detail and code-location maps are in the "what shipped" sections lower in this file.
 
-## Active / next — slice 2c, in this order
+## Active / next — UI names, then set bonuses (order decided by user, 2026-07-29)
 
-**Ordering is DECIDED (user, 2026-07-29): Armor 3.0 restriction ✅ done → mod ingest fix → beam
-dimension, measuring cost immediately after wiring.**
+### ⏭️ TASK 1 — resolve entity hashes to NAMES in the recommender
+
+**Why first:** the recommender works end-to-end but is barely readable — it prints counts and RAW
+HASHES for the exotic, aspects, fragments and artifact perks. `Lookup` already resolves every one of
+them; the wiring simply is not there. Smallest change, largest visible payoff, no design decisions.
+
+**What to build:** have `recommend()` return resolved display data alongside the `SolveResult` —
+exotic name, aspect names, fragment names, artifact-perk names — and render those instead of hashes.
+Resolve through the `Lookup` seam (`lookup.armor` / `aspect` / `fragment` / `artifactPerk`), NOT by
+indexing dataset arrays, so the UI keeps the seam the solver uses.
+
+**Files:** `src/lib/ui/recommend.ts` (add resolved names to `Recommendation`), `src/app/page.tsx`
+(render them), `tests/ui/recommend.test.ts`.
+
+**The tests that prove it done — these assertions specifically:**
+1. For `{ element: "arc", classType: "warlock" }`: the exotic name is a NON-EMPTY string that
+   `ds.armor.find(a => a.name === name)` resolves, and the aspect-name array has length `ASPECT_CAP`
+   with every entry resolving in `ds.aspects`.
+2. A NEGATIVE assertion that catches the current state: no rendered summary value matches
+   `/^\d{4,}$/` (a bare hash). Without it, adding names while leaving hashes in place would pass.
+3. `npx next build` clean, plus a rendered check (`next start` + curl, HTML-stripped) showing a real
+   exotic name for the arc/warlock top build rather than a digit string.
+
+### ⏭️ TASK 2 — set-bonus dimension, behind a NEW `targeted` field
+
+**Decision (user, 2026-07-29): add a SEPARATE targeted field. Do NOT relax `setBonusCounts`.**
+
+**Why:** `setBonusCounts` (`src/lib/validation/armor.ts`) validates each `armor.setBonuses` entry
+against how many pieces of that set appear in `armor.pieces` — which the solver never writes. So a
+prescribed bonus written to `setBonuses` emits `SET_COUNT_INVALID` on **every** build. The two claims
+differ: `setBonuses` asserts "these are ACTIVE" (about equipped pieces); the solver needs "these are
+TARGETED" (about what to obtain). Separate fields mean no rule is weakened and nothing has to guess
+which claim it is reading. Relaxing the rule when `pieces` is empty was REJECTED — it makes the rule
+silently non-enforcing exactly when a build is solver-generated, the same class of mistake as the
+`pieces` ∪ `exoticHash` gap recorded later in this file.
+
+**There IS a real objective:** 58 of 112 set bonuses carry keyword tags across 40 of 56 sets (e.g.
+"Wrecker" produces overshield + stasis_crystal at 2 pieces; "Ascendant Escape" produces invisibility
+at 4). ⚠️ Tags live on each BONUS, not on the set — checking the set level shows 0/56 and is what
+produced an earlier wrong note in this file.
+
+**Slot arithmetic:** 5 armour slots minus 1 exotic leaves **4** legendary slots, and bonuses need 2 or
+4 pieces. Legal plans: one 4-piece bonus, two DIFFERENT 2-piece bonuses, or a single 2-piece.
+
+**The tests that prove it done — these assertions specifically:**
+1. A solver-produced build carrying a targeted set bonus passes `validateBuild` with **zero `game`
+   violations**, specifically no `SET_COUNT_INVALID`. This is the assertion that fails today if the
+   bonus is written to `setBonuses`, so it is what proves the field split works.
+2. Every chosen plan satisfies the arithmetic: total required pieces ≤ 4, and a 4-piece plan is never
+   combined with another bonus. Assert on the PLAN, not merely on feasibility.
+3. An admissibility property test for the set-bonus reach term, **SYNTHETIC not real-data** (see
+   Process + gotchas — a real-data gate went vacuous this session). Mutation-proven: deleting the
+   reach push must redden it.
+4. Weapons tripwire still exactly **10,527**.
+
+**⚠️ Unmodelled, decide before building:** DIM models — and our data confirms — a set-bonus
+**SELECTOR socket** (`selectors`, on 3 exotic class items) letting one piece wildcard a missing set
+piece. Ignoring it over-reports infeasibility. Shipping without it is fine if the limitation is
+stated; do not model it by accident.
+
+## ✅ Slice 2c (mods) — COMPLETE, shipped this session
 
 ### Step 1 — mod placeholder exclusion ✅ DONE (`5c913e5`)
 
@@ -504,6 +563,10 @@ Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[
 - **Explicitly deferred (do NOT build now):** ~~champion/anti-barrier coverage~~ — **DONE in slice 2a** (`KeywordTags.championStuns`, 188 entities; the "text-only data, needs extraction pass" concern was the extraction pass slice 2a performed). Note the manifest currently has **zero** `/anti-barrier/` artifact perks, so any anti-barrier gate must key off `championStuns`, not perk names. Still deferred: **exotic class-item spirit pools** — **wanted, but POST-RELEASE, far down the line** (decided 2026-07-27; see the top of this file. The combos are arduous random-rolled farms most players ignore, and spirits are *partial* mimics, so their tags must never be derived from the original exotic's text); one-exotic-*weapon* rule (needs a `tier` field on Weapon, not emitted); ~~mod energy legality (deprecated)~~ — **WRONG, corrected 2026-07-29: energy capacity is LIVE as a constant 11; only energy AFFINITY is deprecated. See the mod-energy section at the top;** OAuth ownership (Phase 2); graph-embedding synergy (Phase 3).
 
 ## Decisions resolved (do not relitigate)
+- **Next order of work: UI names FIRST, then set bonuses (user, 2026-07-29).** *Why:* the recommender already runs end-to-end but prints raw hashes, so name resolution is the smallest change with the largest visible payoff and needs no design decisions; set bonuses then follow with their semantics settled.
+- **`armor.setBonuses` keeps meaning "ACTIVE"; the solver gets a SEPARATE targeted field (user, 2026-07-29).** *Why:* "these bonuses are active" (a claim about equipped pieces, which `setBonusCounts` validates against `armor.pieces`) and "these bonuses are targeted" (a claim about what to obtain) are genuinely different claims. Separate fields keep every rule enforcing and stop validation or the UI having to guess which it is reading. **Relaxing `setBonusCounts` when `pieces` is empty was explicitly REJECTED** — it would make the rule silently non-enforcing exactly when a build is solver-generated, repeating the `pieces` ∪ `exoticHash` mistake.
+- **Mods stay OPT-IN; the structural rewrite is NOT scheduled (user, 2026-07-29).** *Why:* 4.4s is tolerable for an explicit "optimise mods" action and unacceptable as a default, and pool tuning is measured-exhausted (cutting `addable` 4x bought ~4%, so the cost is depth-driven). Both structural alternatives cost real quality or real work for a latency win nothing currently needs: per-slot batching needs a candidate-set heuristic, and a post-beam greedy pass discards the delayed-reward discovery the admissible bound exists to provide. Revisit only if something concrete is blocked by the 4.4s.
+- **SP4's armour roll VALUES are to be RESEARCHED FROM EXTERNAL SOURCES (user, 2026-07-29).** The values needed: primary 30 / secondary 25 / tertiary 20 or 25, plus the masterwork and artifice stat increments. They are balance numbers and are absent from the manifest (measured: all 3,996 Armor 3.0 `investmentStats` values are 0). **⚠️ When doing this, CITE THE SOURCE in code next to each constant and date it.** The risk to manage — flagged and accepted: community sources drift between seasons, and a wrong constant silently skews every stat recommendation. That is the same failure mode as the "energy deprecated" note, which took two corrections to unwind. Prefer a source that states the current season explicitly, and treat any number that cannot be corroborated twice as unknown rather than guessing.
 - **Solver-chosen artifact is DROPPED from scope (user, 2026-07-29).** The artifact stays pinned. *Why:* the constraint that actually mattered — perks tied to their own artifact — already exists and is now test-verified (`tests/solver/artifact-scoping.test.ts`), keeping the perk space at one artifact's 21 rather than the 138 union. Choosing among the 7 artifacts would recommend perks the player cannot access, since only one is active per season. **Still open and separate:** `artifacts.json` has no active-season marker, so nothing can pick a default — see Future/parked.
 - **Armor 3.0 only, and it precedes the mod dimension (user, 2026-07-29).** ✅ shipped `28d14d8`. *Why prune:* it is the only effectively usable armour. *Why first:* it changes what the solver considers, so measuring mod cost once against final data beats measuring twice. Derived from the `armor_tiering` socket rather than ingested, so no re-ingest and no new field. Measured to be a no-op on exotic pool size, which also makes dedup principled.
 - **Mods are modelled PER SLOT, not per piece (user, 2026-07-29).** *Why it is exact rather than approximate:* within Armor 3.0 the mod layout is 1 general + 3 slot-specific for 990 of 999 pieces, and all 9 exceptions are already-out-of-scope exotic families (3 Aeon arms, 3 exotic class items, 3 set-bonus-selector class items). This is what lets mods work at all, since the solver writes only `armor.exoticHash` and never `armor.pieces`.
@@ -555,6 +618,10 @@ Rule-registry + DI validator: each rule is a pure `(build, lookup) => Violation[
 - **(Phase 0, still binding):** Approach B static ingestion committed to git; `bungie-api-ts` + `getDestinyManifestSlice`, `X-API-Key` only; energy affinity ignored; synergy rules-first w/ embedding-ready seam; solver = decompose + inverted indexes + beam search (armor-stats = swappable DIM port). Names: repo `D2Synergy`, npm `d2synergy`.
 
 ## Process + gotchas
+- **⚠️ ADMISSIBILITY GATES: use a SYNTHETIC fixture, never real data.** A real-data admissibility gate for the mod dimension passed even with the reach term deleted — the other dimensions' reach already dominates any single mod, so the gate was vacuous. The synthetic replacement (`tests/solver/beam-mods.test.ts`) isolates the delayed reward: the ONLY producer of the keyword the pinned fragment consumes is a mod. That version reddens. Real data tends to make these gates pass for the wrong reason.
+- **⚠️ A MUTATION THAT FAILS TO APPLY reads exactly like a mutation that did not matter — and it hid two real bugs this session.** In both cases the grep-confirm showed the edit had not landed, so the accompanying green was meaningless: (1) the `modReach` bound push had silently never been added by an earlier edit, leaving mod candidates filtered out of `addable` with nothing replacing them; (2) the vacuous gate above. ALWAYS assert the target string exists before mutating and grep-confirm after. Python over `sed` for any target containing shell/regex metacharacters.
+- **⚠️ Verify UI work by RENDERING, not by building.** `next build` compiling clean says nothing about output. Start the server and curl with HTML stripped — that is how the arc/warlock, prismatic/hunter and stasis/titan scores were confirmed. A parse error in a test file, similarly, reports "no tests" rather than a failure.
+- **Next 16 specifics** (this version diverges from training data — `AGENTS.md` requires reading `node_modules/next/dist/docs/` first): `params` AND `searchParams` are both **Promises** and must be awaited; `use cache` requires opting into `cacheComponents` in `next.config` (not enabled — `loadDataset` already caches in-process).
 - **⚠️ A VACUOUS MUTATION IS A SYMPTOM, NOT A VERDICT — this fired twice this session.** When removing a guard reddens NOTHING, ask what the tests fail to cover before concluding the code is merely defensive. (1) Deleting the aspect clause from `dimensionsAllDecided` reddened nothing, which exposed that all three cap comparisons ignored pinned aspects — a build with one pinned aspect got two more, emitting a 3-aspect illegal build. (2) In `artifact-scoping.test.ts`, simulating an ingest that unions every artifact's perks leaves the per-artifact "leak" assertions vacuous (no perk is exclusive to another), so the anti-vacuity test is the one doing the work. **Always pair a coverage sweep with an assertion that it observed both outcomes.**
 - **⚠️ `sed` silently fails on targets containing `|` and reports a meaningless green.** Happened this session mutating a `||` expression: the grep-confirm step caught it. Use `python` for any mutation whose target contains shell/regex metacharacters, and ALWAYS grep-confirm before interpreting a run.
 - **⚠️ TESTING THE BEAM: a `beamSearch`-level test CANNOT catch a dropped state-forward — the search SELF-HEALS.** Discovered while proving slice 2b's forwarding invariant. If `expand` drops an already-decided dimension, `generateCandidates` simply re-offers that dimension's moves at the next level and the search re-picks it, so the final build looks correct while the state threading is broken. **Only a direct `expand()` test catches it** — build a state with the dimension already decided (so no candidate of that kind exists to mask the drop), call `expand`, and assert every child carries the decision. This generalises to every dimension slice 3 adds; reach for the direct-`expand` instrument, not an end-to-end one.
