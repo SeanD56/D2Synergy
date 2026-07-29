@@ -14,6 +14,17 @@ export {
   canAdd as canAddArtifactPerk,
 } from "./artifact-capacity";
 export type { CapacityModel, Capacity } from "./artifact-capacity";
+// Mod capacity oracle (SP3b slice 2c). Named symmetrically with the artifact oracle above,
+// but the structures are NOT interchangeable — artifact sockets are nested/upward-closed,
+// mod sockets are categorical (see mod-capacity.ts).
+export {
+  ARMOR_ENERGY_CAPACITY,
+  buildModCapacityModel,
+  modCapacityModelForPiece,
+  evaluateModCapacity,
+  canAddMod,
+} from "./mod-capacity";
+export type { ModCapacityModel, ModCapacity, ModSocket, PlaceableMod } from "./mod-capacity";
 export type {
   Lookup,
   Rule,
