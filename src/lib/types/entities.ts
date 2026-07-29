@@ -133,6 +133,33 @@ export interface Mod extends DerivedEntity {
   tags: KeywordTags;
 }
 
+/**
+ * The six Armor 3.0 stats. Named by their manifest display names, lowercased.
+ */
+export type ArmorStat = "health" | "melee" | "grenade" | "super" | "class" | "weapons";
+
+/**
+ * An Armor 3.0 ARCHETYPE — the thing that fixes which stats a piece rolls high in.
+ *
+ * MEASURED on manifest `244213.26.06.29.2000-1-bnet.65583`: exactly 12 archetypes exist, and each
+ * FIXES an ordered (primary, secondary) stat pair — 12 of the 30 possible ordered pairs over 6
+ * stats. That answers the question SP4's shape hinges on: a piece's stat profile is
+ * (archetype, tertiary stat, tertiary value) rather than a free choice of 3 stats, so the per-slot
+ * space is 12 x 4 x 2 = 96 rather than 240.
+ *
+ * ⚠️ The VALUES are not here and cannot be: every Armor 3.0 item carries 4 `investmentStats` whose
+ * values are all ZERO in the manifest (3,996 of 3,996 measured), because a piece's actual roll is
+ * INSTANCE data. So a stat model must be built from (archetype + tertiary), never from item stats —
+ * which is also why searching owned pieces cannot be done from the static dataset at all.
+ */
+export interface ArmorArchetype extends DerivedEntity {
+  kind: "armorArchetype";
+  /** Stat this archetype rolls highest (30 under the standard roll model). */
+  primaryStat: ArmorStat;
+  /** Second-highest stat (25). */
+  secondaryStat: ArmorStat;
+}
+
 /** A single selectable perk within an artifact tier. */
 export interface ArtifactPerk {
   hash: Hash;

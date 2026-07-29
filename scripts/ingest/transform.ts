@@ -19,6 +19,7 @@ import type {
 
 import type {
   Armor,
+  ArmorArchetype,
   ArmorSet,
   Artifact,
   ArtifactPerk,
@@ -42,6 +43,7 @@ import type { ManifestSlice } from "./fetchManifest";
 import type { Tagger } from "./keywords";
 import { modSlotFromPlugCategory } from "./mod-slots";
 import { collectArmorSocketTypes } from "./socket-types";
+import { transformArmorArchetypes } from "./armor-archetypes";
 
 /** All derived entity arrays produced by a single transform pass. */
 export interface TransformResult {
@@ -51,6 +53,8 @@ export interface TransformResult {
   weapons: Weapon[];
   armor: Armor[];
   armorSets: ArmorSet[];
+  /** Armor 3.0 archetypes: the (primary, secondary) stat pairing a piece rolls high in. */
+  armorArchetypes: ArmorArchetype[];
   mods: Mod[];
   artifacts: Artifact[];
   perks: Perk[];
@@ -695,6 +699,7 @@ export function transformAll(
     weapons,
     armor: transformArmor(slice, classifier, tag),
     armorSets: transformArmorSets(slice, tag),
+    armorArchetypes: transformArmorArchetypes(slice),
     mods: transformMods(slice, classifier, tag),
     artifacts,
     perks: transformPerks(slice, tag),

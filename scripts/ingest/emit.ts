@@ -22,6 +22,7 @@ type EntityKey = Exclude<keyof TransformResult, "plugTags" | "socketTypes" | "cu
 const ENTITY_FILES: Array<[file: string, key: EntityKey]> = [
   ["subclasses.json", "subclasses"],
   ["aspects.json", "aspects"],
+  ["armor-archetypes.json", "armorArchetypes"],
   ["fragments.json", "fragments"],
   ["weapons.json", "weapons"],
   ["armor.json", "armor"],
